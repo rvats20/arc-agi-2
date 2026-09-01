@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual envs
+.venv/
+.venv_jed/
+venv/
+env/
+
+# Build / dist
+build/
+dist/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project-specific (large/derived files)
+data/arc-agi_*_challenges.json
+data/arc-agi_*_solutions.json
+data/arc-agi_*_test_challenges.json
+data/sample_submission.json
+qwen25vl_4bit/
+kaggle_push/
+*.ipynb_checkpoints/
+.ipynb_checkpoints/
+__pycache__/
+.cache/
+.DS_Store
+
+# Generated artefacts
+submission_*.json
+!submission_fixture.json
+measure_*.json
+*.log
+*.bak
+*.backup

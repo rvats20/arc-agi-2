@@ -263,6 +263,53 @@ def shift_to_origin(g: np.ndarray, bg: int = 0) -> np.ndarray:
     out[:rh, :rw] = g[y0:, x0:]
     return out
 
+def _shift_each_object_source(task) -> str | None:
+    """If each connected non-bg object in the input is shifted by the same
+    (dy, dx) in the output (with cells that would go off-grid dropped),
+    infer that shift and emit a solve().
+
+    Optimization: instead of rebuilding the full output for every (dy, dx),
+    we score each candidate by counting how many object cells would land
+    in matching output cells. O(object_cells * shifts) not O(grid * shifts).
+    """
+    from .verifier import verify_program
+    pair = task.train[0]
+    inp = np.array(pair["input"], dtype=int)
+    out = np.array(pair["output"], dtype=int)
+    if inp.shape != out.shape:
+        return None
+    objs = find_objects(inp)
+    if not objs:
+        return None
+    h, w = inp.shape
+    # Cap the search to a small window to keep big grids cheap
+    dy_range = range(max(-h + 1, -3), min(h, 4))
+    dx_range = range(max(-w + 1, -3), min(w, 4))
+    # Collect all (y, x, color) for the objects
+    cells = []
+    for obj in objs:
+        ys, xs = np.where(obj["mask"])
+        for y, x in zip(ys, xs):
+            cells.append((y, x, inp[y, x]))
+    n_cells = len(cells)
+    if n_cells == 0:
+        return None
+    # Find (dy, dx) that maps every cell to a matching output cell
+    for dy in dy_range:
+        for dx in dx_range:
+            ok = True
+            for y, x, c in cells:
+                ny, nx = y + dy, x + dx
+                if not (0 <= ny < h and 0 <= nx < w) or out[ny, nx] != c:
+                    ok = False
+                    break
+            if ok:
+                src = f"def solve(g):\n    return shift_each_object(g, {dy}, {dx})\n"
+                if verify_program(src, task):
+                    return src
+    return None
+
+
 def shift_object(g: np.ndarray, dy: int, dx: int, bg: int = 0) -> np.ndarray:
     """Translate the non-background cells by (dy, dx). Cells that fall off
     the grid are dropped; newly-vacated cells become bg.
@@ -281,6 +328,22 @@ def shift_object(g: np.ndarray, dy: int, dx: int, bg: int = 0) -> np.ndarray:
                 ny, nx = y + dy, x + dx
                 if 0 <= ny < h and 0 <= nx < w:
                     out[ny, nx] = g[y, x]
+    return out
+
+
+def shift_each_object(g: np.ndarray, dy: int, dx: int, bg: int = 0) -> np.ndarray:
+    """Translate EACH connected non-background object independently by (dy, dx).
+    Cells that fall off the grid are dropped. Useful for the
+    "shift every object right by 1" family.
+    """
+    h, w = g.shape
+    out = np.full((h, w), bg, dtype=g.dtype)
+    for obj in find_objects(g, bg=bg):
+        ys, xs = np.where(obj["mask"])
+        for y, x in zip(ys, xs):
+            ny, nx = y + dy, x + dx
+            if 0 <= ny < h and 0 <= nx < w:
+                out[ny, nx] = g[y, x]
     return out
 
 def find_objects(g: np.ndarray, bg: int = 0) -> list[dict]:
@@ -332,6 +395,7 @@ PRIMITIVES = {
     "brickwall_tile": brickwall_tile,
     "shift_to_origin": shift_to_origin,
     "shift_object": shift_object,
+    "shift_each_object": shift_each_object,
     "fill_enclosed": fill_enclosed,
     "flood_fill_4": flood_fill_4,
     "find_objects": find_objects,
@@ -386,9 +450,8 @@ def _shift_object_source(task) -> str | None:
     """If the transformation is 'shift the (single) non-bg object by (dy, dx)',
     infer dy/dx from the first train pair and emit a solve().
 
-    Heuristic: compare the non-zero cell sets of input and output; the
-    (dy, dx) that maps the most input cells into output cells (preserving
-    color) is the shift. Works on same-shape tasks only.
+    Heuristic: same as shift_each_object, but verifies that there is only
+    ONE object so a single shift makes sense.
     """
     from .verifier import verify_program
     pair = task.train[0]
@@ -396,54 +459,41 @@ def _shift_object_source(task) -> str | None:
     out = np.array(pair["output"], dtype=int)
     if inp.shape != out.shape:
         return None
-    # Skip if input is blank
     if not (inp != 0).any():
         return None
-    h, w = inp.shape
     in_nz = (inp != 0)
     out_nz = (out != 0)
     if in_nz.sum() != out_nz.sum():
-        # Object size changed — can't be a pure shift
         return None
-    # Try every (dy, dx) in a small window; pick the one that maps the most
-    # input cells to output cells of the SAME color
-    best = None
-    best_score = -1
-    for dy in range(-h + 1, h):
-        for dx in range(-w + 1, w):
-            score = 0
-            for y in range(h):
-                for x in range(w):
-                    if not in_nz[y, x]:
-                        continue
-                    ny, nx = y + dy, x + dx
-                    if 0 <= ny < h and 0 <= nx < w and out[ny, nx] == inp[y, x]:
-                        score += 1
-            if score > best_score:
-                best_score = score
-                best = (dy, dx)
-    if best is None or best_score != in_nz.sum():
-        # No perfect shift found
+    # Use find_objects to ensure there's a single object
+    objs = find_objects(inp)
+    if len(objs) != 1:
         return None
-    dy, dx = best
-    # Try all top shifts (in case of ties) until one verifies
-    candidates = []
-    for dy_ in range(-h + 1, h):
-        for dx_ in range(-w + 1, w):
-            score = 0
-            for y in range(h):
-                for x in range(w):
-                    if not in_nz[y, x]:
-                        continue
-                    ny, nx = y + dy_, x + dx_
-                    if 0 <= ny < h and 0 <= nx < w and out[ny, nx] == inp[y, x]:
-                        score += 1
-            if score == in_nz.sum():
-                candidates.append((dy_, dx_))
-    for dy_, dx_ in candidates:
-        src = f"def solve(g):\n    return shift_object(g, {dy_}, {dx_})\n"
-        if verify_program(src, task):
-            return src
+    h, w = inp.shape
+    if h * w > 400:  # cap search to keep big grids cheap
+        dy_range = range(max(-h + 1, -3), min(h, 4))
+        dx_range = range(max(-w + 1, -3), min(w, 4))
+    else:
+        dy_range = range(-h + 1, h)
+        dx_range = range(-w + 1, w)
+    # Find (dy, dx) that maps every non-zero cell to a matching output cell
+    cells = []
+    for obj in objs:
+        ys, xs = np.where(obj["mask"])
+        for y, x in zip(ys, xs):
+            cells.append((y, x, inp[y, x]))
+    for dy in dy_range:
+        for dx in dx_range:
+            ok = True
+            for y, x, c in cells:
+                ny, nx = y + dy, x + dx
+                if not (0 <= ny < h and 0 <= nx < w) or out[ny, nx] != c:
+                    ok = False
+                    break
+            if ok:
+                src = f"def solve(g):\n    return shift_object(g, {dy}, {dx})\n"
+                if verify_program(src, task):
+                    return src
     return None
 
 
@@ -685,6 +735,13 @@ def synthesize(task, max_compose: bool = True, verbose: bool = False,
         if use_cache:
             _put(task, so)
         return so
+    seo = _shift_each_object_source(task)
+    if seo:
+        if verbose:
+            print("  verified (shift_each_object)")
+        if use_cache:
+            _put(task, seo)
+        return seo
     # 4. 2-primitive compositions (more expensive)
     if max_compose:
         for src in _composition_sources():

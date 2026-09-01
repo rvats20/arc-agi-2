@@ -147,28 +147,37 @@ def _composition_sources() -> list[str]:
 
 
 def _color_map_source(task) -> str | None:
-    """If every train pair has identical shape and a consistent per-color map
-    input->output, return a solve() that applies it."""
+    """If every train pair has a consistent per-color map input->output
+    (shapes can differ across pairs), return a solve() that applies it.
+
+    Two cells only get a useful map when the mapping is non-trivial (size>=2)
+    and uses at least one non-zero source. Identity-only maps are skipped.
+    Unmapped source colors map to 0 (background).
+    """
     mapping: dict[int, int] = {}
-    shape = None
     for pair in task.train:
         inp = np.array(pair["input"], dtype=int)
         out = np.array(pair["output"], dtype=int)
-        if shape is None:
-            shape = inp.shape
-        if inp.shape != out.shape or inp.shape != shape:
+        # Each pair must preserve shape (color map cannot change size)
+        if inp.shape != out.shape:
             return None
         for a, b in zip(inp.flat, out.flat):
             if a in mapping and mapping[a] != b:
                 return None
             mapping[a] = b
-    if not mapping:
+    # Need a meaningful (non-identity) map with at least one non-zero source
+    if not mapping or len(mapping) < 2:
         return None
-    f = [-1] * 10
+    if all(k == v for k, v in mapping.items()):
+        return None
+    if all(k == 0 for k in mapping.keys()):
+        return None
+    # Build lookup: 0..9 -> mapped value or 0 if unmapped
+    f = [0] * 10
     for k, v in mapping.items():
-        f[k] = v
+        f[int(k)] = int(v)
     return (f"def solve(g):\n"
-            f"    _f = np.array({f}, dtype=int)\n"
+            f"    _f = np.array({f}, dtype=np.int64)\n"
             f"    return _f[g]\n")
 
 

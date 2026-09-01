@@ -28,13 +28,32 @@ SAFE_COLORS_NOTE = (
 SYSTEM_PROMPT = textwrap.dedent(
     """
     You are an ARC-AGI grid-reasoning solver. You receive example input/output
-    grids as images and one test input grid. Infer the transformation rule and
-    WRITE a Python function `solve(g)` where `g` is a numpy int array
-    (rows x cols). Available helpers are already in scope: np, rotate_cw,
-    rotate_ccw, flip_h, flip_v, transpose, invert_colors, crop_nonzero,
-    grow_nonzero. You may also write plain numpy code. The function must return
-    a numpy int array of the SAME or transformed shape. Output ONLY python code
-    starting with `def solve(g):` and nothing else.
+    grids as images and one test input grid. Infer the transformation rule
+    and WRITE a Python function `solve(g)` where `g` is a numpy int array
+    (rows x cols). Available helpers (already in scope):
+
+      ORIENTATION:
+        rotate_cw, rotate_ccw, flip_h, flip_v, transpose
+      COLOR:
+        invert_colors, color_replace(g, src, dst), keep_color(g, c)
+      GEOMETRY:
+        crop_nonzero, bounding_box_crop, shift_to_origin, grow_nonzero
+        scale_up(g, k), scale_down(g, k)
+      TILING (use when output is a self-similar pattern of the input):
+        kron_tile(g, k)         - repeat the input k x k
+        masked_kron_tile(g, k)  - use input as a binary mask; place a copy
+                                  of g at each non-zero cell of the mask
+        brickwall_tile(g, k)    - k x k tiling with horizontal-flip on
+                                  every odd row of tiles
+      REGION:
+        find_objects(g, bg)             - list of connected-component masks
+        fill_enclosed(g, frame, fill)   - fill zero-regions enclosed by
+                                          frame-color (4-connected)
+        flood_fill_4(g, (y, x), color)   - 4-connected paint from seed
+
+    You may also write plain numpy / Python code. `solve(g)` must return a
+    numpy int array (the output grid). Output ONLY python code starting
+    with `def solve(g):` and nothing else. No markdown, no commentary.
     """
 ).strip()
 
@@ -150,42 +169,88 @@ class QwenVL:
 
 
 def repair_loop(proposer, task, n_rounds: int = 3, n_candidates: int = 4) -> Optional[str]:
-    """Neuro-symbolic REPAIR: propose candidates, verify; if the best one fails,
-    feed the failing train pair(s) back to the proposer as a correction hint and
-    try again. Works with ANY proposer exposing propose(task, hint=...) + the
-    shared verifier. Returns a verified source or None.
+    """Neuro-symbolic REPAIR: propose candidates, verify; if the best one
+    fails, feed the failing train pair back to the proposer as a concrete
+    correction hint (with ASCII diff) and try again. Works with ANY proposer
+    exposing propose(task, hint=...) + the shared verifier. Returns a
+    verified source or None.
 
-    On Kaggle `proposer` is QwenVL (sees the failure as a natural-language hint).
-    Locally we exercise the SAME control flow with MockVL so the loop is proven.
+    On Kaggle `proposer` is QwenVL (sees the failure as a natural-language
+    hint). Locally we exercise the SAME control flow with MockVL so the
+    loop is proven.
     """
-    from .verifier import verify_program
+    from .verifier import verify_program, run_program
+    import numpy as np
 
     hint: Optional[str] = None
+    best_hint: Optional[str] = None
     for _ in range(n_rounds):
         cands = proposer.propose(task, n_candidates=n_candidates, hint=hint)
         for src in cands:
             if src and verify_program(src, task):
                 return src
-        # build a repair hint from the first failing train pair
+        # Pick the candidate that's CLOSEST to correct, not just the first
+        # — feed that one's failure as the next hint so the LLM can see
+        # what was almost-right and adjust.
         if cands:
-            hint = _failure_hint(task, cands[0])
+            scored = []
+            for src in cands:
+                try:
+                    diffs = []
+                    for pair in task.train:
+                        pred = np.array(run_program(src, pair["input"]), dtype=int)
+                        gold = np.array(pair["output"], dtype=int)
+                        if pred.shape != gold.shape:
+                            diffs.append(pred.size + 1)  # huge penalty
+                        else:
+                            diffs.append(int((pred != gold).sum()))
+                    scored.append((sum(diffs), src))
+                except Exception:
+                    scored.append((10**9, src))
+            scored.sort(key=lambda t: t[0])
+            best_src = scored[0][1]
+            best_hint = _failure_hint(task, best_src)
+            hint = best_hint
     return None
 
 
 def _failure_hint(task, src: str) -> str:
-    """Describe, in plain text, how the candidate failed on the first train pair,
-    so a language-model proposer can correct itself."""
+    """Describe, in plain text, how the candidate failed on the first train
+    pair, so a language-model proposer can correct itself.
+
+    The hint is intentionally concrete: it names the failing train pair
+    index, the predicted vs expected shape, the number of differing cells,
+    and (for small grids) the ASCII diff so the LLM can SEE what's wrong.
+    """
     from .verifier import run_program
     import numpy as np
-    pair = task.train[0]
-    try:
-        pred = np.array(run_program(src, pair["input"]), dtype=int)
+    # Use the FIRST pair that fails (not necessarily pair 0)
+    for pi, pair in enumerate(task.train):
+        try:
+            pred = np.array(run_program(src, pair["input"]), dtype=int)
+        except Exception as e:
+            return (f"Pair {pi}: your program raised {type(e).__name__}: {e}. "
+                    f"Fix the code; remember the available helpers listed in "
+                    f"the system prompt.")
         gold = np.array(pair["output"], dtype=int)
         if pred.shape != gold.shape:
-            return (f"Your program produced a grid of shape {tuple(pred.shape)} but the "
-                    f"expected output shape is {tuple(gold.shape)}. Fix the shape.")
-        diff = int((pred != gold).sum())
-        return (f"Your program output differs from the expected output in {diff} cell(s) "
-                f"out of {gold.size}. Adjust the rule.")
-    except Exception as e:
-        return f"Your program raised {type(e).__name__}: {e}. Fix the code."
+            return (f"Pair {pi}: predicted shape {tuple(pred.shape)} but "
+                    f"expected {tuple(gold.shape)}. Look at the size ratio "
+                    f"to decide whether to use scale_up(k), kron_tile(k), "
+                    f"masked_kron_tile(k), or brickwall_tile(k).")
+        if not np.array_equal(pred, gold):
+            diff_mask = pred != gold
+            n_diff = int(diff_mask.sum())
+            # Find the bounding box of differences
+            ys, xs = np.where(diff_mask)
+            y0, y1 = int(ys.min()), int(ys.max())
+            x0, x1 = int(xs.min()), int(xs.max())
+            hint = (f"Pair {pi}: {n_diff}/{gold.size} cells wrong. "
+                    f"Diffs are in rows {y0}..{y1}, cols {x0}..{x1}. ")
+            if gold.size <= 400:
+                # ASCII diff so the LLM can spot the pattern at a glance
+                from .grid_utils import grid_to_ascii
+                hint += ("\n  expected:\n" + grid_to_ascii(gold.tolist())
+                         + "\n  got:\n" + grid_to_ascii(pred.tolist()))
+            return hint
+    return "All train pairs matched."  # shouldn't reach here normally

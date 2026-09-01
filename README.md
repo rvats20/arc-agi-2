@@ -37,10 +37,14 @@ python dryrun_fixture.py    # proves the accept-path fires (2/2)
 
 ## Measured status (this session)
 - Fixture pipeline: 2/2 solved, submission valid.
+- ARC-AGI-2 training set, pure DSL: 24/1000 = 2.40%
+  (v1.0 baseline 14, +5 colormap fix, +3 tile primitives, +2 fill_enclosed)
 - Real ARC-AGI-2 eval, toy DSL: 0/120 (honest floor; VLM is the scorer).
 - Full loop with MockVL: accept-path verified on fixture; 0/120 on real eval
   (real tasks aren't pure transforms — expected).
 - Notebook: 19 cells, all compile; Qwen load + verifier + checkpoint + format present.
+- LLM system prompt lists all 16 primitives; failure hint includes ASCII diff
+  for grids <= 20x20; repair loop picks the best (lowest diff) candidate.
 
 ## Run on Kaggle (real score)
 1. Create a Kaggle dataset with **Qwen2.5-VL-7B-Instruct** in 4-bit. Easiest:

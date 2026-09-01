@@ -214,10 +214,11 @@ def fill_enclosed(g: np.ndarray, frame_color: int, fill_color: int) -> np.ndarra
     out[out == SENTINEL] = 0
     return out
 
-def find_objects(g: np.ndarray, bg: int = 0) -> list[np.ndarray]:
-    """Return a list of connected-component masks (boolean arrays) of cells
-    with value != bg, using 4-connectivity. Background-color cells inside a
-    shape (holes) are NOT considered separate objects.
+def find_objects(g: np.ndarray, bg: int = 0) -> list[dict]:
+    """Return a list of connected-component records:
+    { 'mask': bool[H,W], 'color': int (the dominant non-bg color), 'n': int }.
+    Uses 4-connectivity. Background-color cells inside a shape (holes) are
+    NOT considered separate objects.
     """
     h, w = g.shape
     visited = np.zeros((h, w), dtype=bool)
@@ -228,6 +229,8 @@ def find_objects(g: np.ndarray, bg: int = 0) -> list[np.ndarray]:
                 continue
             mask = np.zeros((h, w), dtype=bool)
             stack = [(y, x)]
+            color = g[y, x]
+            n = 0
             while stack:
                 cy, cx = stack.pop()
                 if cy < 0 or cy >= h or cx < 0 or cx >= w:
@@ -236,8 +239,9 @@ def find_objects(g: np.ndarray, bg: int = 0) -> list[np.ndarray]:
                     continue
                 visited[cy, cx] = True
                 mask[cy, cx] = True
+                n += 1
                 stack.extend([(cy + 1, cx), (cy - 1, cx), (cy, cx + 1), (cy, cx - 1)])
-            objs.append(mask)
+            objs.append({"mask": mask, "color": color, "n": n})
     return objs
 
 def shift_to_origin(g: np.ndarray, bg: int = 0) -> np.ndarray:
@@ -259,6 +263,56 @@ def shift_to_origin(g: np.ndarray, bg: int = 0) -> np.ndarray:
     out[:rh, :rw] = g[y0:, x0:]
     return out
 
+def shift_object(g: np.ndarray, dy: int, dx: int, bg: int = 0) -> np.ndarray:
+    """Translate the non-background cells by (dy, dx). Cells that fall off
+    the grid are dropped; newly-vacated cells become bg.
+
+    dy > 0 = down, dx > 0 = right. Works on the WHOLE object (bounding box
+    of non-bg cells), not per-pixel.
+    """
+    h, w = g.shape
+    out = np.full((h, w), bg, dtype=g.dtype)
+    mask = g != bg
+    if not mask.any():
+        return g
+    for y in range(h):
+        for x in range(w):
+            if mask[y, x]:
+                ny, nx = y + dy, x + dx
+                if 0 <= ny < h and 0 <= nx < w:
+                    out[ny, nx] = g[y, x]
+    return out
+
+def find_objects(g: np.ndarray, bg: int = 0) -> list[dict]:
+    """Return a list of connected-component records:
+    { 'mask': bool[H,W], 'color': int (the dominant non-bg color), 'n': int }.
+    Uses 4-connectivity. Background-color cells inside a shape (holes) are
+    NOT considered separate objects.
+    """
+    h, w = g.shape
+    visited = np.zeros((h, w), dtype=bool)
+    objs = []
+    for y in range(h):
+        for x in range(w):
+            if g[y, x] == bg or visited[y, x]:
+                continue
+            mask = np.zeros((h, w), dtype=bool)
+            stack = [(y, x)]
+            color = g[y, x]
+            n = 0
+            while stack:
+                cy, cx = stack.pop()
+                if cy < 0 or cy >= h or cx < 0 or cx >= w:
+                    continue
+                if visited[cy, cx] or g[cy, cx] == bg:
+                    continue
+                visited[cy, cx] = True
+                mask[cy, cx] = True
+                n += 1
+                stack.extend([(cy + 1, cx), (cy - 1, cx), (cy, cx + 1), (cy, cx - 1)])
+            objs.append({"mask": mask, "color": color, "n": n})
+    return objs
+
 PRIMITIVES = {
     "rotate_cw": rotate_cw,
     "rotate_ccw": rotate_ccw,
@@ -277,6 +331,7 @@ PRIMITIVES = {
     "masked_kron_tile": masked_kron_tile,
     "brickwall_tile": brickwall_tile,
     "shift_to_origin": shift_to_origin,
+    "shift_object": shift_object,
     "fill_enclosed": fill_enclosed,
     "flood_fill_4": flood_fill_4,
     "find_objects": find_objects,
@@ -325,6 +380,71 @@ def _composition_sources() -> list[str]:
         srcs.append(f"def solve(g):\n    return rotate_cw(masked_kron_tile(g, {k}))\n")
         srcs.append(f"def solve(g):\n    return flip_h(masked_kron_tile(g, {k}))\n")
     return srcs
+
+
+def _shift_object_source(task) -> str | None:
+    """If the transformation is 'shift the (single) non-bg object by (dy, dx)',
+    infer dy/dx from the first train pair and emit a solve().
+
+    Heuristic: compare the non-zero cell sets of input and output; the
+    (dy, dx) that maps the most input cells into output cells (preserving
+    color) is the shift. Works on same-shape tasks only.
+    """
+    from .verifier import verify_program
+    pair = task.train[0]
+    inp = np.array(pair["input"], dtype=int)
+    out = np.array(pair["output"], dtype=int)
+    if inp.shape != out.shape:
+        return None
+    # Skip if input is blank
+    if not (inp != 0).any():
+        return None
+    h, w = inp.shape
+    in_nz = (inp != 0)
+    out_nz = (out != 0)
+    if in_nz.sum() != out_nz.sum():
+        # Object size changed — can't be a pure shift
+        return None
+    # Try every (dy, dx) in a small window; pick the one that maps the most
+    # input cells to output cells of the SAME color
+    best = None
+    best_score = -1
+    for dy in range(-h + 1, h):
+        for dx in range(-w + 1, w):
+            score = 0
+            for y in range(h):
+                for x in range(w):
+                    if not in_nz[y, x]:
+                        continue
+                    ny, nx = y + dy, x + dx
+                    if 0 <= ny < h and 0 <= nx < w and out[ny, nx] == inp[y, x]:
+                        score += 1
+            if score > best_score:
+                best_score = score
+                best = (dy, dx)
+    if best is None or best_score != in_nz.sum():
+        # No perfect shift found
+        return None
+    dy, dx = best
+    # Try all top shifts (in case of ties) until one verifies
+    candidates = []
+    for dy_ in range(-h + 1, h):
+        for dx_ in range(-w + 1, w):
+            score = 0
+            for y in range(h):
+                for x in range(w):
+                    if not in_nz[y, x]:
+                        continue
+                    ny, nx = y + dy_, x + dx_
+                    if 0 <= ny < h and 0 <= nx < w and out[ny, nx] == inp[y, x]:
+                        score += 1
+            if score == in_nz.sum():
+                candidates.append((dy_, dx_))
+    for dy_, dx_ in candidates:
+        src = f"def solve(g):\n    return shift_object(g, {dy_}, {dx_})\n"
+        if verify_program(src, task):
+            return src
+    return None
 
 
 def _fill_enclosed_source(task) -> str | None:
@@ -558,6 +678,13 @@ def synthesize(task, max_compose: bool = True, verbose: bool = False,
         if use_cache:
             _put(task, kr)
         return kr
+    so = _shift_object_source(task)
+    if so:
+        if verbose:
+            print("  verified (shift_object)")
+        if use_cache:
+            _put(task, so)
+        return so
     # 4. 2-primitive compositions (more expensive)
     if max_compose:
         for src in _composition_sources():

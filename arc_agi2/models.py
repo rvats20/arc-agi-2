@@ -20,6 +20,8 @@ import re
 import textwrap
 from typing import Optional
 
+import numpy as np
+
 SAFE_COLORS_NOTE = (
     "Grid colors are ints 0-9; 0 is the black background. "
     "Grids are rendered as colored cells in the images."
@@ -168,7 +170,29 @@ class QwenVL:
         return None
 
 
-def repair_loop(proposer, task, n_rounds: int = 3, n_candidates: int = 4) -> Optional[str]:
+def looks_llm_hopeless(task, src: str | None) -> bool:
+    """Heuristic: a task that the DSL can't solve and has more than ~3 train
+    pairs and very dense inputs is likely too hard for the LLM too (the LLM
+    would burn 10+ minutes on it). Skip the LLM branch and let attempt_2
+    (identity) be the answer.
+
+    This is a budget safeguard, not a quality signal. False negatives cost
+    us a possible solve; false positives save a lot of Kaggle time.
+    """
+    n_pairs = len(task.train)
+    if n_pairs < 4:
+        return False
+    # Average density across train inputs
+    densities = []
+    for pair in task.train:
+        inp = np.asarray(pair["input"], dtype=int)
+        densities.append(float((inp != 0).sum()) / max(inp.size, 1))
+    avg_density = sum(densities) / max(len(densities), 1)
+    return avg_density > 0.7
+
+
+def repair_loop(proposer, task, n_rounds: int = 3, n_candidates: int = 4,
+                skip_if_hopeless: bool = True) -> Optional[str]:
     """Neuro-symbolic REPAIR: propose candidates, verify; if the best one
     fails, feed the failing train pair back to the proposer as a concrete
     correction hint (with ASCII diff) and try again. Works with ANY proposer
@@ -178,9 +202,16 @@ def repair_loop(proposer, task, n_rounds: int = 3, n_candidates: int = 4) -> Opt
     On Kaggle `proposer` is QwenVL (sees the failure as a natural-language
     hint). Locally we exercise the SAME control flow with MockVL so the
     loop is proven.
+
+    If `skip_if_hopeless` is True (default), tasks that look too dense AND
+    have many train pairs are skipped — the LLM would burn 10+ minutes on
+    them and likely fail. Set False to never skip.
     """
     from .verifier import verify_program, run_program
     import numpy as np
+
+    if skip_if_hopeless and looks_llm_hopeless(task, None):
+        return None
 
     hint: Optional[str] = None
     best_hint: Optional[str] = None

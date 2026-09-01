@@ -30,9 +30,13 @@ data/arc-agi_*_solutions.json
 data/arc-agi_*_test_challenges.json
 data/sample_submission.json
 qwen25vl_4bit/
-kaggle_push/
+kaggle_push/arc_agi2/
 *.ipynb_checkpoints/
 .ipynb_checkpoints/
+
+# DO commit the kaggle_push/kernel-metadata.json (kaggle_push/ is otherwise
+# gitignored; the metadata file documents the kernel's competition + dataset
+# attachments which are useful in code review)
 __pycache__/
 .cache/
 .DS_Store

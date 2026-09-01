@@ -496,43 +496,67 @@ def _color_map_source(task) -> str | None:
             f"    return _f[g]\n")
 
 
-def synthesize(task, max_compose: bool = True, verbose: bool = False) -> str | None:
+def synthesize(task, max_compose: bool = True, verbose: bool = False,
+               use_cache: bool = True) -> str | None:
     """Bounded program synthesizer over the primitive library.
 
-    Tries (in order, cheapest first): single primitives -> colormap ->
+    Tries (in order, cheapest first): cache -> single primitives -> colormap ->
     specialized probes (fill_enclosed, kron_with_k) -> 2-primitive compositions.
     Returns the first source that verifies against all train pairs, or None.
     This is the symbolic floor; the LLM extends beyond it.
+
+    If `use_cache` is True (default), the task's structural fingerprint is
+    checked against an on-disk cache first; on a hit we re-verify (in case
+    primitives changed) and short-circuit. On a miss we run the full search
+    and write the verified source to the cache.
     """
     from .verifier import verify_program
+    from .cache import fingerprint as _fp, get_cached as _get, put_cached as _put
+    # 0. Cache lookup (re-verify, then return if it still works)
+    if use_cache:
+        cached = _get(task)
+        if cached and verify_program(cached, task):
+            if verbose:
+                print("  cache hit")
+            return cached
     # 1. Single-primitive programs (cheapest)
     for src in _single_sources():
         if verify_program(src, task):
             if verbose:
                 print("  verified (single):", src.strip().splitlines()[0])
+            if use_cache:
+                _put(task, src)
             return src
     # 2. Color-map probe (cheap, only same-shape tasks)
     cm = _color_map_source(task)
     if cm and verify_program(cm, task):
         if verbose:
             print("  verified (colormap)")
+        if use_cache:
+            _put(task, cm)
         return cm
     # 2b. Single-color-output recolor probe (object recolor by marker)
     sc = _single_color_recolor_source(task)
     if sc:
         if verbose:
             print("  verified (single_color_recolor)")
+        if use_cache:
+            _put(task, sc)
         return sc
     # 3. Specialized probes (frame+fill, kron-with-inferred-k)
     fe = _fill_enclosed_source(task)
     if fe:
         if verbose:
             print("  verified (fill_enclosed)")
+        if use_cache:
+            _put(task, fe)
         return fe
     kr = _kron_with_k_source(task)
     if kr:
         if verbose:
             print("  verified (kron_inferred_k)")
+        if use_cache:
+            _put(task, kr)
         return kr
     # 4. 2-primitive compositions (more expensive)
     if max_compose:
@@ -540,11 +564,13 @@ def synthesize(task, max_compose: bool = True, verbose: bool = False) -> str | N
             if verify_program(src, task):
                 if verbose:
                     print("  verified (compose):", src.strip().splitlines()[0])
+                if use_cache:
+                    _put(task, src)
                 return src
     return None
 
 
-def search_solve(task, verbose: bool = False) -> str | None:
+def search_solve(task, verbose: bool = False, use_cache: bool = True) -> str | None:
     """Backward-compatible alias for synthesize()."""
-    return synthesize(task, verbose=verbose)
+    return synthesize(task, verbose=verbose, use_cache=use_cache)
 

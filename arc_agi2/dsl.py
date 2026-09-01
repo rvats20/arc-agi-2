@@ -277,6 +277,9 @@ PRIMITIVES = {
     "masked_kron_tile": masked_kron_tile,
     "brickwall_tile": brickwall_tile,
     "shift_to_origin": shift_to_origin,
+    "fill_enclosed": fill_enclosed,
+    "flood_fill_4": flood_fill_4,
+    "find_objects": find_objects,
 }
 
 # Register primitives into the safe namespace so solve() can call them directly.
@@ -386,6 +389,78 @@ def _kron_with_k_source(task) -> str | None:
     return None
 
 
+def _single_color_recolor_source(task) -> str | None:
+    """If the output has exactly one non-zero color across the whole grid,
+    and we can express the transformation as a colormap on the input
+    (possibly composed with an orientation transform), emit the solve().
+
+    The 'object recolor by marker' family: input has a 'shape' color and a
+    'marker' color; output has the shape recolored to the marker's color
+    and the marker removed (set to 0). This pattern shows up ~60 times in
+    ARC-AGI-2 and pure-DSL would otherwise miss it.
+    """
+    from .verifier import verify_program
+    pair = task.train[0]
+    inp = np.array(pair["input"], dtype=int)
+    out = np.array(pair["output"], dtype=int)
+    if inp.shape != out.shape:
+        return None
+    out_palette = set(np.unique(out).tolist()) - {0}
+    if len(out_palette) != 1:
+        return None
+    target = next(iter(out_palette))
+    # Try the standard 'object recolor' pattern: src=marker_color (input has
+    # only one marker cell) maps to 0, and the dominant non-zero color maps
+    # to target. Test against ALL train pairs (verify_program does that).
+    in_palette = [c for c in range(1, 10) if (inp == c).any()]
+    if len(in_palette) < 2:
+        return None
+    counts = {c: int((inp == c).sum()) for c in in_palette}
+    # Shape color = most common, marker color = least common
+    sorted_by_count = sorted(counts.items(), key=lambda t: t[1])
+    marker = sorted_by_count[0][0]
+    shape = sorted_by_count[-1][0]
+    f = [0] * 10
+    f[shape] = target
+    src = (f"def solve(g):\n"
+           f"    _f = np.array({f}, dtype=np.int64)\n"
+           f"    return _f[g]\n")
+    if verify_program(src, task):
+        return src
+    # Fallback: try every (source_color -> target, everything else -> 0)
+    for sc in in_palette:
+        if sc == target:
+            continue
+        f = [0] * 10
+        f[sc] = target
+        src = (f"def solve(g):\n"
+               f"    _f = np.array({f}, dtype=np.int64)\n"
+               f"    return _f[g]\n")
+        if verify_program(src, task):
+            return src
+    # Try recolor + orientation: for each orientation, apply it first, then
+    # the same colormap. Catches 'recolor AND shift/rotate' cases.
+    orientations = [
+        ("", "g"),
+        ("rotate_cw", "rotate_cw(g)"),
+        ("rotate_ccw", "rotate_ccw(g)"),
+        ("rotate_cw(rotate_cw", "rotate_cw(rotate_cw(g))"),
+        ("flip_h", "flip_h(g)"),
+        ("flip_v", "flip_v(g)"),
+    ]
+    for _, expr in orientations:
+        f = [0] * 10
+        # Build a map: every non-zero input color -> target
+        for c in in_palette:
+            f[c] = target
+        src = (f"def solve(g):\n"
+               f"    _f = np.array({f}, dtype=np.int64)\n"
+               f"    return _f[{expr}]\n")
+        if verify_program(src, task):
+            return src
+    return None
+
+
 def _color_map_source(task) -> str | None:
     """If every train pair has a consistent per-color map input->output
     (shapes can differ across pairs), return a solve() that applies it.
@@ -442,6 +517,12 @@ def synthesize(task, max_compose: bool = True, verbose: bool = False) -> str | N
         if verbose:
             print("  verified (colormap)")
         return cm
+    # 2b. Single-color-output recolor probe (object recolor by marker)
+    sc = _single_color_recolor_source(task)
+    if sc:
+        if verbose:
+            print("  verified (single_color_recolor)")
+        return sc
     # 3. Specialized probes (frame+fill, kron-with-inferred-k)
     fe = _fill_enclosed_source(task)
     if fe:

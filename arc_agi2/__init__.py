@@ -11,11 +11,13 @@ Layout:
   grid_text.py   - Qwen-style grid-as-text encoding (digits + newlines)
   arc_dataset.py - ArcDataset with D4 + S10 augmentation (VARC/NVARC port)
   selection.py   - score_kgmon / score_full_probmul_3 (VARC/NVARC port)
+  varc_engine.py - custom ViT with per-task TTT (VARC reference port; torch)
 
 All CPU-safe functions (loader/grid_utils/dsl/verifier/submission/
 cache/grid_text/arc_dataset/selection) run and verify locally on WSL.
-models.py imports torch/transformers only inside its functions so it
-stays importable on CPU machines.
+models.py and varc_engine.py import torch/transformers only inside their
+functions (varc_engine.py guards the imports with try/except) so they
+stay importable on CPU machines.
 """
 
 from .loader import Task, load_task, load_challenges, load_solutions, load_all

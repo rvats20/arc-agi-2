@@ -214,10 +214,11 @@ def fill_enclosed(g: np.ndarray, frame_color: int, fill_color: int) -> np.ndarra
     out[out == SENTINEL] = 0
     return out
 
-def find_objects(g: np.ndarray, bg: int = 0) -> list[np.ndarray]:
-    """Return a list of connected-component masks (boolean arrays) of cells
-    with value != bg, using 4-connectivity. Background-color cells inside a
-    shape (holes) are NOT considered separate objects.
+def find_objects(g: np.ndarray, bg: int = 0) -> list[dict]:
+    """Return a list of connected-component records:
+    { 'mask': bool[H,W], 'color': int (the dominant non-bg color), 'n': int }.
+    Uses 4-connectivity. Background-color cells inside a shape (holes) are
+    NOT considered separate objects.
     """
     h, w = g.shape
     visited = np.zeros((h, w), dtype=bool)
@@ -228,6 +229,8 @@ def find_objects(g: np.ndarray, bg: int = 0) -> list[np.ndarray]:
                 continue
             mask = np.zeros((h, w), dtype=bool)
             stack = [(y, x)]
+            color = g[y, x]
+            n = 0
             while stack:
                 cy, cx = stack.pop()
                 if cy < 0 or cy >= h or cx < 0 or cx >= w:
@@ -236,8 +239,9 @@ def find_objects(g: np.ndarray, bg: int = 0) -> list[np.ndarray]:
                     continue
                 visited[cy, cx] = True
                 mask[cy, cx] = True
+                n += 1
                 stack.extend([(cy + 1, cx), (cy - 1, cx), (cy, cx + 1), (cy, cx - 1)])
-            objs.append(mask)
+            objs.append({"mask": mask, "color": color, "n": n})
     return objs
 
 def shift_to_origin(g: np.ndarray, bg: int = 0) -> np.ndarray:
@@ -259,6 +263,119 @@ def shift_to_origin(g: np.ndarray, bg: int = 0) -> np.ndarray:
     out[:rh, :rw] = g[y0:, x0:]
     return out
 
+def _shift_each_object_source(task) -> str | None:
+    """If each connected non-bg object in the input is shifted by the same
+    (dy, dx) in the output (with cells that would go off-grid dropped),
+    infer that shift and emit a solve().
+
+    Optimization: instead of rebuilding the full output for every (dy, dx),
+    we score each candidate by counting how many object cells would land
+    in matching output cells. O(object_cells * shifts) not O(grid * shifts).
+    """
+    from .verifier import verify_program
+    pair = task.train[0]
+    inp = np.array(pair["input"], dtype=int)
+    out = np.array(pair["output"], dtype=int)
+    if inp.shape != out.shape:
+        return None
+    objs = find_objects(inp)
+    if not objs:
+        return None
+    h, w = inp.shape
+    # Cap the search to a small window to keep big grids cheap
+    dy_range = range(max(-h + 1, -3), min(h, 4))
+    dx_range = range(max(-w + 1, -3), min(w, 4))
+    # Collect all (y, x, color) for the objects
+    cells = []
+    for obj in objs:
+        ys, xs = np.where(obj["mask"])
+        for y, x in zip(ys, xs):
+            cells.append((y, x, inp[y, x]))
+    n_cells = len(cells)
+    if n_cells == 0:
+        return None
+    # Find (dy, dx) that maps every cell to a matching output cell
+    for dy in dy_range:
+        for dx in dx_range:
+            ok = True
+            for y, x, c in cells:
+                ny, nx = y + dy, x + dx
+                if not (0 <= ny < h and 0 <= nx < w) or out[ny, nx] != c:
+                    ok = False
+                    break
+            if ok:
+                src = f"def solve(g):\n    return shift_each_object(g, {dy}, {dx})\n"
+                if verify_program(src, task):
+                    return src
+    return None
+
+
+def shift_object(g: np.ndarray, dy: int, dx: int, bg: int = 0) -> np.ndarray:
+    """Translate the non-background cells by (dy, dx). Cells that fall off
+    the grid are dropped; newly-vacated cells become bg.
+
+    dy > 0 = down, dx > 0 = right. Works on the WHOLE object (bounding box
+    of non-bg cells), not per-pixel.
+    """
+    h, w = g.shape
+    out = np.full((h, w), bg, dtype=g.dtype)
+    mask = g != bg
+    if not mask.any():
+        return g
+    for y in range(h):
+        for x in range(w):
+            if mask[y, x]:
+                ny, nx = y + dy, x + dx
+                if 0 <= ny < h and 0 <= nx < w:
+                    out[ny, nx] = g[y, x]
+    return out
+
+
+def shift_each_object(g: np.ndarray, dy: int, dx: int, bg: int = 0) -> np.ndarray:
+    """Translate EACH connected non-background object independently by (dy, dx).
+    Cells that fall off the grid are dropped. Useful for the
+    "shift every object right by 1" family.
+    """
+    h, w = g.shape
+    out = np.full((h, w), bg, dtype=g.dtype)
+    for obj in find_objects(g, bg=bg):
+        ys, xs = np.where(obj["mask"])
+        for y, x in zip(ys, xs):
+            ny, nx = y + dy, x + dx
+            if 0 <= ny < h and 0 <= nx < w:
+                out[ny, nx] = g[y, x]
+    return out
+
+def find_objects(g: np.ndarray, bg: int = 0) -> list[dict]:
+    """Return a list of connected-component records:
+    { 'mask': bool[H,W], 'color': int (the dominant non-bg color), 'n': int }.
+    Uses 4-connectivity. Background-color cells inside a shape (holes) are
+    NOT considered separate objects.
+    """
+    h, w = g.shape
+    visited = np.zeros((h, w), dtype=bool)
+    objs = []
+    for y in range(h):
+        for x in range(w):
+            if g[y, x] == bg or visited[y, x]:
+                continue
+            mask = np.zeros((h, w), dtype=bool)
+            stack = [(y, x)]
+            color = g[y, x]
+            n = 0
+            while stack:
+                cy, cx = stack.pop()
+                if cy < 0 or cy >= h or cx < 0 or cx >= w:
+                    continue
+                if visited[cy, cx] or g[cy, cx] == bg:
+                    continue
+                visited[cy, cx] = True
+                mask[cy, cx] = True
+                n += 1
+                stack.extend([(cy + 1, cx), (cy - 1, cx), (cy, cx + 1), (cy, cx - 1)])
+            objs.append({"mask": mask, "color": color, "n": n})
+    return objs
+
 PRIMITIVES = {
     "rotate_cw": rotate_cw,
     "rotate_ccw": rotate_ccw,
@@ -277,6 +394,8 @@ PRIMITIVES = {
     "masked_kron_tile": masked_kron_tile,
     "brickwall_tile": brickwall_tile,
     "shift_to_origin": shift_to_origin,
+    "shift_object": shift_object,
+    "shift_each_object": shift_each_object,
     "fill_enclosed": fill_enclosed,
     "flood_fill_4": flood_fill_4,
     "find_objects": find_objects,
@@ -325,6 +444,57 @@ def _composition_sources() -> list[str]:
         srcs.append(f"def solve(g):\n    return rotate_cw(masked_kron_tile(g, {k}))\n")
         srcs.append(f"def solve(g):\n    return flip_h(masked_kron_tile(g, {k}))\n")
     return srcs
+
+
+def _shift_object_source(task) -> str | None:
+    """If the transformation is 'shift the (single) non-bg object by (dy, dx)',
+    infer dy/dx from the first train pair and emit a solve().
+
+    Heuristic: same as shift_each_object, but verifies that there is only
+    ONE object so a single shift makes sense.
+    """
+    from .verifier import verify_program
+    pair = task.train[0]
+    inp = np.array(pair["input"], dtype=int)
+    out = np.array(pair["output"], dtype=int)
+    if inp.shape != out.shape:
+        return None
+    if not (inp != 0).any():
+        return None
+    in_nz = (inp != 0)
+    out_nz = (out != 0)
+    if in_nz.sum() != out_nz.sum():
+        return None
+    # Use find_objects to ensure there's a single object
+    objs = find_objects(inp)
+    if len(objs) != 1:
+        return None
+    h, w = inp.shape
+    if h * w > 400:  # cap search to keep big grids cheap
+        dy_range = range(max(-h + 1, -3), min(h, 4))
+        dx_range = range(max(-w + 1, -3), min(w, 4))
+    else:
+        dy_range = range(-h + 1, h)
+        dx_range = range(-w + 1, w)
+    # Find (dy, dx) that maps every non-zero cell to a matching output cell
+    cells = []
+    for obj in objs:
+        ys, xs = np.where(obj["mask"])
+        for y, x in zip(ys, xs):
+            cells.append((y, x, inp[y, x]))
+    for dy in dy_range:
+        for dx in dx_range:
+            ok = True
+            for y, x, c in cells:
+                ny, nx = y + dy, x + dx
+                if not (0 <= ny < h and 0 <= nx < w) or out[ny, nx] != c:
+                    ok = False
+                    break
+            if ok:
+                src = f"def solve(g):\n    return shift_object(g, {dy}, {dx})\n"
+                if verify_program(src, task):
+                    return src
+    return None
 
 
 def _fill_enclosed_source(task) -> str | None:
@@ -496,55 +666,95 @@ def _color_map_source(task) -> str | None:
             f"    return _f[g]\n")
 
 
-def synthesize(task, max_compose: bool = True, verbose: bool = False) -> str | None:
+def synthesize(task, max_compose: bool = True, verbose: bool = False,
+               use_cache: bool = True) -> str | None:
     """Bounded program synthesizer over the primitive library.
 
-    Tries (in order, cheapest first): single primitives -> colormap ->
+    Tries (in order, cheapest first): cache -> single primitives -> colormap ->
     specialized probes (fill_enclosed, kron_with_k) -> 2-primitive compositions.
     Returns the first source that verifies against all train pairs, or None.
     This is the symbolic floor; the LLM extends beyond it.
+
+    If `use_cache` is True (default), the task's structural fingerprint is
+    checked against an on-disk cache first; on a hit we re-verify (in case
+    primitives changed) and short-circuit. On a miss we run the full search
+    and write the verified source to the cache.
     """
     from .verifier import verify_program
+    from .cache import fingerprint as _fp, get_cached as _get, put_cached as _put
+    # 0. Cache lookup (re-verify, then return if it still works)
+    if use_cache:
+        cached = _get(task)
+        if cached and verify_program(cached, task):
+            if verbose:
+                print("  cache hit")
+            return cached
     # 1. Single-primitive programs (cheapest)
     for src in _single_sources():
         if verify_program(src, task):
             if verbose:
                 print("  verified (single):", src.strip().splitlines()[0])
+            if use_cache:
+                _put(task, src)
             return src
     # 2. Color-map probe (cheap, only same-shape tasks)
     cm = _color_map_source(task)
     if cm and verify_program(cm, task):
         if verbose:
             print("  verified (colormap)")
+        if use_cache:
+            _put(task, cm)
         return cm
     # 2b. Single-color-output recolor probe (object recolor by marker)
     sc = _single_color_recolor_source(task)
     if sc:
         if verbose:
             print("  verified (single_color_recolor)")
+        if use_cache:
+            _put(task, sc)
         return sc
     # 3. Specialized probes (frame+fill, kron-with-inferred-k)
     fe = _fill_enclosed_source(task)
     if fe:
         if verbose:
             print("  verified (fill_enclosed)")
+        if use_cache:
+            _put(task, fe)
         return fe
     kr = _kron_with_k_source(task)
     if kr:
         if verbose:
             print("  verified (kron_inferred_k)")
+        if use_cache:
+            _put(task, kr)
         return kr
+    so = _shift_object_source(task)
+    if so:
+        if verbose:
+            print("  verified (shift_object)")
+        if use_cache:
+            _put(task, so)
+        return so
+    seo = _shift_each_object_source(task)
+    if seo:
+        if verbose:
+            print("  verified (shift_each_object)")
+        if use_cache:
+            _put(task, seo)
+        return seo
     # 4. 2-primitive compositions (more expensive)
     if max_compose:
         for src in _composition_sources():
             if verify_program(src, task):
                 if verbose:
                     print("  verified (compose):", src.strip().splitlines()[0])
+                if use_cache:
+                    _put(task, src)
                 return src
     return None
 
 
-def search_solve(task, verbose: bool = False) -> str | None:
+def search_solve(task, verbose: bool = False, use_cache: bool = True) -> str | None:
     """Backward-compatible alias for synthesize()."""
-    return synthesize(task, verbose=verbose)
+    return synthesize(task, verbose=verbose, use_cache=use_cache)
 

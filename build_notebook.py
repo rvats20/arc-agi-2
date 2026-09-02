@@ -37,22 +37,68 @@ CONFIG_CELL = '''import os, json, time, sys
 from pathlib import Path
 
 # Add the bundled `arc-agi-2-pkg` dataset to sys.path.  The dataset contains
-# the `arc_agi2/` Python package and is maintained via `make_kaggle_model_dataset.py`
-# + `kaggle datasets version -m` (run from the project root after every change).
+# the `arc_agi2/` Python package and is maintained via `kaggle datasets version -m`
+# (run from the project root after every change to arc_agi2/*.py).
 # This is safer than base64-embedding the source in the notebook (which gets
 # flagged by Kaggle's content filter because long alphanumeric strings look
 # like API keys).
-PKG_PATHS = [
-    "/kaggle/input/arc-agi-2-pkg/arc_agi2",
-    "/kaggle/input/arc-agi-2-pkg",
-    "/kaggle/input/rahulvats20-arc-agi-2-pkg/arc_agi2",
-]
-for _p in PKG_PATHS:
-    if Path(_p).exists():
-        sys.path.insert(0, _p)
-        break
-PKG_FOUND = any(Path(_p).exists() for _p in PKG_PATHS)
-print("arc_agi2 package found:", PKG_FOUND)
+# The dataset is mounted under /kaggle/input/ — the exact subdir name depends
+# on the dataset slug + whether it was uploaded as zip or files.
+# Discovery: print EVERYTHING under /kaggle/input/ recursively to diagnose
+# the dataset structure, then look for the package in a few common layouts.
+PKG_PARENT = None
+_kaggle_input = Path("/kaggle/input")
+if _kaggle_input.exists():
+    _dirs = sorted(p.name for p in _kaggle_input.iterdir())
+    print("/kaggle/input/ contents:", _dirs)
+    # Detailed listing of the first 20 entries of each subdir
+    for _d in _kaggle_input.iterdir():
+        try:
+            if _d.is_dir():
+                _children = sorted(p.name + ("/" if p.is_dir() else "") for p in _d.iterdir())
+                print(f"  /kaggle/input/{_d.name}/ contents (first 20):", _children[:20])
+            else:
+                print(f"  /kaggle/input/{_d.name}: file, size={_d.stat().st_size}")
+        except Exception as _e:
+            print(f"  /kaggle/input/{_d.name}: error listing ({_e})")
+    # Try common layouts in order of preference
+    for _p in _kaggle_input.iterdir():
+        # Layout 1: <dataset>/arc_agi2/__init__.py (preferred — true package)
+        if _p.is_dir() and (_p / "arc_agi2" / "__init__.py").exists():
+            PKG_PARENT = str(_p)
+            print(f"  found package at {PKG_PARENT}/arc_agi2/")
+            break
+        # Layout 2: <dataset>.zip — Kaggle keeps the zip; extract and search
+        if _p.is_file() and _p.suffix == ".zip":
+            import zipfile
+            _extract_to = Path("/kaggle/working/_pkg_extracted")
+            _extract_to.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(_p) as _z:
+                _z.extractall(_extract_to)
+            for _sub in _extract_to.rglob("arc_agi2/__init__.py"):
+                PKG_PARENT = str(_sub.parent.parent)
+                break
+            if PKG_PARENT:
+                print(f"  extracted {PKG_PARENT} from {_p.name}")
+                break
+        # Layout 3: <dataset>/<files at root> with __init__.py at root
+        if _p.is_dir() and (_p / "__init__.py").exists():
+            # The dataset mounted the package files directly (no subdir).
+            # Wrap in a synthetic arc_agi2/ subdir in /kaggle/working/.
+            _wrap = Path("/kaggle/working/_pkg_wrapped/arc_agi2")
+            _wrap.mkdir(parents=True, exist_ok=True)
+            for _f in _p.iterdir():
+                if _f.is_file() and _f.suffix == ".py":
+                    (_wrap / _f.name).write_bytes(_f.read_bytes())
+            PKG_PARENT = str(_wrap.parent)
+            print(f"  wrapped root-level files into {PKG_PARENT}/arc_agi2/")
+            break
+PKG_FOUND = PKG_PARENT is not None
+if PKG_FOUND:
+    sys.path.insert(0, PKG_PARENT)
+    print("arc_agi2 package found at:", PKG_PARENT)
+else:
+    print("arc_agi2 package NOT FOUND under /kaggle/input/; tried to detect automatically")
 
 KAGGLE_INPUT = '/kaggle/input/competitions/arc-prize-2026-arc-agi-2'
 QWEN_PATH    = '/kaggle/input/models/Qwen2.5-VL-7B-Instruct-4bit'

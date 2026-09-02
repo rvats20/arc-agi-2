@@ -12,6 +12,7 @@ Layout:
   arc_dataset.py - ArcDataset with D4 + S10 augmentation (VARC/NVARC port)
   selection.py   - score_kgmon / score_full_probmul_3 (VARC/NVARC port)
   varc_engine.py - custom ViT with per-task TTT (VARC reference port; torch)
+  unified_solver.py - DSL + VARC + LLM orchestrator with kgmon consensus (torch)
 
 All CPU-safe functions (loader/grid_utils/dsl/verifier/submission/
 cache/grid_text/arc_dataset/selection) run and verify locally on WSL.

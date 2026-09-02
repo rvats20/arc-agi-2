@@ -10,7 +10,7 @@
   "enable_internet": false,
   "competition_sources": ["arc-prize-2026-arc-agi-2"],
   "dataset_sources": ["rahulvats20/arc-agi-2-pkg"],
-  "model_sources": [],
+  "model_sources": ["sorokin/qwen3_4b_grids15_sft139/transformers/bfloat16/1"],
   "keywords": [],
-  "description": "LLM-proposes (Qwen2.5-VL-7B, 4-bit) + symbolic verifier. Self-contained notebook (8KB), no base64-embedded source. Uses the rahulvats20/arc-agi-2-pkg dataset for the arc_agi2 package. Pure DSL branch runs even without the Qwen model. attempt_1/attempt_2 scoring."
+  "description": "Neuro-symbolic solver: DSL + VARC ViT TTT + Qwen3-4B Turbo DFS. Uses the rahulvats20/arc-agi-2-pkg dataset for the arc_agi2 Python package and the sorokin Qwen3-4B model for the LLM branch. Even without the model, the DSL+VARC branches run on GPU. attempt_1/attempt_2 scoring."
 }

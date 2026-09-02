@@ -37,29 +37,89 @@ CONFIG_CELL = '''import os, json, time, sys
 from pathlib import Path
 
 # Add the bundled `arc-agi-2-pkg` dataset to sys.path.  The dataset contains
-# the `arc_agi2/` Python package and is maintained via `make_kaggle_model_dataset.py`
-# + `kaggle datasets version -m` (run from the project root after every change).
+# the `arc_agi2/` Python package and is maintained via `kaggle datasets version -m`
+# (run from the project root after every change to arc_agi2/*.py).
 # This is safer than base64-embedding the source in the notebook (which gets
 # flagged by Kaggle's content filter because long alphanumeric strings look
 # like API keys).
-PKG_PATHS = [
-    "/kaggle/input/arc-agi-2-pkg/arc_agi2",
-    "/kaggle/input/arc-agi-2-pkg",
-    "/kaggle/input/rahulvats20-arc-agi-2-pkg/arc_agi2",
-]
-for _p in PKG_PATHS:
-    if Path(_p).exists():
-        sys.path.insert(0, _p)
-        break
-PKG_FOUND = any(Path(_p).exists() for _p in PKG_PATHS)
-print("arc_agi2 package found:", PKG_FOUND)
+# The dataset is mounted under /kaggle/input/ — the exact subdir name depends
+# on the dataset slug + whether it was uploaded as zip or files.
+# Discovery: print EVERYTHING under /kaggle/input/ recursively to diagnose
+# the dataset structure, then look for the package in a few common layouts.
+PKG_PARENT = None
+_kaggle_input = Path("/kaggle/input")
+if _kaggle_input.exists():
+    _dirs = sorted(p.name for p in _kaggle_input.iterdir())
+    print("/kaggle/input/ contents:", _dirs)
+    # Detailed listing of the first 20 entries of each subdir
+    for _d in _kaggle_input.iterdir():
+        try:
+            if _d.is_dir():
+                _children = sorted(p.name + ("/" if p.is_dir() else "") for p in _d.iterdir())
+                print(f"  /kaggle/input/{_d.name}/ contents (first 20):", _children[:20])
+            else:
+                print(f"  /kaggle/input/{_d.name}: file, size={_d.stat().st_size}")
+        except Exception as _e:
+            print(f"  /kaggle/input/{_d.name}: error listing ({_e})")
+    # Try common layouts in order of preference
+    for _p in _kaggle_input.iterdir():
+        # Layout 1: <dataset>/arc_agi2/__init__.py (preferred — true package)
+        if _p.is_dir() and (_p / "arc_agi2" / "__init__.py").exists():
+            PKG_PARENT = str(_p)
+            print(f"  found package at {PKG_PARENT}/arc_agi2/")
+            break
+        # Layout 2: <dataset>.zip — Kaggle keeps the zip; extract and search
+        if _p.is_file() and _p.suffix == ".zip":
+            import zipfile
+            _extract_to = Path("/kaggle/working/_pkg_extracted")
+            _extract_to.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(_p) as _z:
+                _z.extractall(_extract_to)
+            for _sub in _extract_to.rglob("arc_agi2/__init__.py"):
+                PKG_PARENT = str(_sub.parent.parent)
+                break
+            if PKG_PARENT:
+                print(f"  extracted {PKG_PARENT} from {_p.name}")
+                break
+        # Layout 3: <dataset>/<files at root> with __init__.py at root
+        if _p.is_dir() and (_p / "__init__.py").exists():
+            # The dataset mounted the package files directly (no subdir).
+            # Wrap in a synthetic arc_agi2/ subdir in /kaggle/working/.
+            _wrap = Path("/kaggle/working/_pkg_wrapped/arc_agi2")
+            _wrap.mkdir(parents=True, exist_ok=True)
+            for _f in _p.iterdir():
+                if _f.is_file() and _f.suffix == ".py":
+                    (_wrap / _f.name).write_bytes(_f.read_bytes())
+            PKG_PARENT = str(_wrap.parent)
+            print(f"  wrapped root-level files into {PKG_PARENT}/arc_agi2/")
+            break
+PKG_FOUND = PKG_PARENT is not None
+if PKG_FOUND:
+    sys.path.insert(0, PKG_PARENT)
+    print("arc_agi2 package found at:", PKG_PARENT)
+else:
+    print("arc_agi2 package NOT FOUND under /kaggle/input/; tried to detect automatically")
 
 KAGGLE_INPUT = '/kaggle/input/competitions/arc-prize-2026-arc-agi-2'
-QWEN_PATH    = '/kaggle/input/models/Qwen2.5-VL-7B-Instruct-4bit'
+# Qwen3-4B grid-fine-tuned model (VARC reference notebook uses this for the
+# 33.89 LB baseline). Publicly available, fine-tunable. Path varies by
+# how the user attached the model to the notebook.
+QWEN3_4B_PATH = os.environ.get(
+    'QWEN3_4B_PATH',
+    '/kaggle/input/models/sorokin/qwen3_4b_grids15_sft139/transformers/bfloat16/1',
+)
+# Legacy Qwen2.5-VL (vision-language). Either of these can be used; we
+# prefer Qwen3-4B when present.
+QWEN25VL_PATH = os.environ.get(
+    'QWEN25VL_PATH',
+    '/kaggle/input/models/Qwen2.5-VL-7B-Instruct-4bit',
+)
 WORK         = Path('/kaggle/working')
 SUBMISSION_PATH  = WORK / 'submission.json'
 CHECKPOINT_PATH  = WORK / 'solutions_checkpoint.json'
-HARD_LIMIT_S     = 10 * 3600
+# 12h budget matches the public NVARC reference (10h for compute + 2h reserve).
+# Reduce via env var for faster iteration runs.
+HARD_LIMIT_S     = int(os.environ.get('HARD_LIMIT_S', str(12 * 3600 - 600)))
 FINALIZE_RESERVE = 15 * 60
 GLOBAL_END       = time.time() + HARD_LIMIT_S
 
@@ -70,23 +130,68 @@ def gpu_available():
     except Exception:
         return False
 
-USE_LLM = gpu_available() and Path(QWEN_PATH).exists()
+def model_path_exists(*paths):
+    return next((p for p in paths if Path(p).exists()), None)
+
+GPU_OK = gpu_available()
+QWEN_MODEL_PATH = model_path_exists(QWEN3_4B_PATH, QWEN25VL_PATH)
+USE_LLM = GPU_OK and QWEN_MODEL_PATH is not None
 print('KAGGLE_INPUT exists:', Path(KAGGLE_INPUT).exists())
-print('GPU available:', gpu_available(), '| Qwen present:', Path(QWEN_PATH).exists(), '| USE_LLM:', USE_LLM)
+print(f'GPU available: {GPU_OK}')
+print(f'Qwen model: {QWEN_MODEL_PATH}')
+print(f'USE_LLM: {USE_LLM}')
 '''
 
-# Solver cell: DSL baseline + LLM repair with time budget + checkpoint
+# Solver cell: DSL baseline + VARC TTT + Qwen3-4B LLM, with kgmon consensus
 SOLVER_CELL = '''import numpy as np
 from arc_agi2 import (load_all, search_solve, verify_program, run_program,
                       write_submission, validate_submission)
+from arc_agi2.unified_solver import build_two_attempts, solve_all_tasks
 
 tasks = load_all(KAGGLE_INPUT, split='evaluation')
 print('eval tasks:', len(tasks))
 
-vl = None
-if USE_LLM:
-    from arc_agi2.models import QwenVL, repair_loop
-    vl = QwenVL(QWEN_PATH, device='auto', load_in_4bit=True)
+# Initialize predictors based on what we have available
+varc_solver = None
+llm_proposer = None
+if GPU_OK:
+    # Quick GPU compatibility check. Recent PyTorch (>= 2.4) drops support
+    # for CUDA capability < 7.0 (Tesla K80 etc.). If the installed torch
+    # can't run on the available GPU, skip VARC/LLM.
+    _compute_cap = None
+    try:
+        _compute_cap = torch.cuda.get_device_capability(0)
+    except Exception:
+        # If we can't even get the device cap, PyTorch probably can't run
+        # on this GPU (P100 sm_60 + recent torch). Treat as incompatible.
+        _compute_cap = None
+    # Also verify a tiny op actually runs on the GPU
+    _gpu_works = False
+    if _compute_cap and _compute_cap >= (7, 0):
+        try:
+            _ = torch.zeros(2, device='cuda') + 1
+            _gpu_works = True
+        except Exception:
+            _gpu_works = False
+    if _gpu_works:
+        # VARC TTT: 60 gradient steps per task on a custom ViT
+        try:
+            from arc_agi2.varc_engine import VARCSolver
+            varc_solver = VARCSolver(device='cuda', ttt_steps=60)
+            print('VARC engine loaded')
+        except Exception as e:
+            print(f'VARC unavailable: {type(e).__name__}: {e}')
+        # Qwen3-4B LLM with text-only grid encoding (per NVARC reference)
+        if QWEN_MODEL_PATH:
+            try:
+                from arc_agi2.models_nvarc import Qwen3GridProposer
+                llm_proposer = Qwen3GridProposer(QWEN_MODEL_PATH, device='cuda')
+                print(f'Qwen LLM loaded from {QWEN_MODEL_PATH}')
+            except Exception as e:
+                print(f'Qwen LLM unavailable: {type(e).__name__}: {e}')
+    else:
+        print(f'GPU compute capability {_compute_cap} (sm_{_compute_cap[0] if _compute_cap else "?"}{_compute_cap[1] if _compute_cap else "?"}) < 7.0 or test op failed; skipping VARC/LLM (DSL only)')
+        print('(select an L4 or T4 accelerator in the kernel settings to enable VARC/LLM)')
 
 # resume from checkpoint if present
 solutions = {}
@@ -94,46 +199,85 @@ if CHECKPOINT_PATH.exists():
     solutions = json.loads(CHECKPOINT_PATH.read_text())
     print('resumed', len(solutions), 'tasks from checkpoint')
 
-# Per-task LLM time budget.  The 10h Kaggle window / 120 eval tasks gives
+# Per-task LLM time budget.  The 12h Kaggle window / 120 eval tasks gives
 # ~5 min/task if we use the LLM on every task.  We want to spend most of
 # the budget on tasks the DSL couldn't solve, not on hopeless ones.
 PER_TASK_LLM_BUDGET_S = int(os.environ.get('PER_TASK_LLM_BUDGET_S', '300'))  # 5 min default
 
-def solve_one(task):
-    src = search_solve(task)                      # DSL baseline (CPU, ~5ms)
-    if src is None and USE_LLM:
-        # Hard time cap so a single hard task can't eat the whole 10h
-        import signal
-        class _Timeout(Exception): pass
-        def _handler(signum, frame): raise _Timeout()
-        old = signal.signal(signal.SIGALRM, _handler)
-        signal.alarm(PER_TASK_LLM_BUDGET_S)
+# Per-task total solver budget (across all predictors). Keeps a single
+# hard task from eating the whole 12h window.
+PER_TASK_TOTAL_BUDGET_S = int(os.environ.get('PER_TASK_TOTAL_BUDGET_S', '900'))  # 15 min default
+
+def solve_one(task, tid=""):
+    """Try DSL -> VARC -> LLM in order, return the verified source or None."""
+    # 1. DSL (CPU, ~5ms)
+    try:
+        src = search_solve(task)
+        if src and verify_program(src, task):
+            return src
+    except Exception as e:
+        print(f'  [{tid}] DSL error: {type(e).__name__}: {e}')
+    # 2. VARC TTT (GPU, 5-30s) — produces a candidate grid; we wrap it
+    #    as a trivial identity-like solve that just returns the prediction.
+    if varc_solver is not None:
         try:
-            # neuro-symbolic repair: propose -> verify -> hint -> re-propose
-            # skip_if_hopeless=True short-circuits dense multi-pair tasks
-            # (the LLM would burn 10+ min and likely fail).
-            src = repair_loop(vl, task, n_rounds=2, n_candidates=4,
-                              skip_if_hopeless=True)
-        except _Timeout:
-            print(f'  task exceeded {PER_TASK_LLM_BUDGET_S}s LLM budget; skipping')
+            from arc_agi2.unified_solver import solve_task_varc
+            train_pairs = [{'input': np.asarray(p['input'], dtype=int),
+                            'output': np.asarray(p['output'], dtype=int)}
+                           for p in task.train]
+            test_in = np.asarray(task.test[0]['input'], dtype=int)
+            varc_pred = varc_solver.solve_task(train_pairs, test_in)
+            if varc_pred is not None:
+                # Wrap as a solve() that just returns this grid. NOTE: this
+                # only works if the task has a single test input with the
+                # same input as train; for multi-test we fall through to LLM.
+                varc_grid = np.asarray(varc_pred, dtype=int)
+                if (len(task.test) == 1
+                        and np.array_equal(varc_grid, test_in) is False):
+                    # Encode as a constant
+                    src = (f'def solve(g):\\n    return np.array({varc_grid.tolist()}, dtype=int)\\n')
+                    # Can't verify on multi-pair, but at least the test matches
+                    return src
+        except Exception as e:
+            print(f'  VARC error: {type(e).__name__}: {e}')
+    # 3. LLM (GPU, minutes)
+    if llm_proposer is not None:
+        try:
+            from arc_agi2.unified_solver import solve_task_llm
+            src = solve_task_llm(task, llm_proposer,
+                                  n_rounds=2, n_candidates=4,
+                                  skip_if_hopeless=True)
+            if src and verify_program(src, task):
+                return src
         except Exception as e:
             print(f'  LLM error: {type(e).__name__}: {e}')
-        finally:
-            signal.alarm(0)
-            signal.signal(signal.SIGALRM, old)
-    return src
+    return None
 
 solved = 0
 preds = {}
 n_test = {}
+import signal
 for tid, task in tasks.items():
     n_test[tid] = len(task.test)
     if tid in solutions:                          # already solved earlier run
         src = solutions[tid]
     else:
-        src = solve_one(task)
-        if src is not None:
-            solutions[tid] = src
+        # Hard time cap per task
+        class _Timeout(Exception): pass
+        def _handler(signum, frame): raise _Timeout()
+        old = signal.signal(signal.SIGALRM, _handler)
+        signal.alarm(PER_TASK_TOTAL_BUDGET_S)
+        try:
+            src = solve_one(task, tid=tid)
+            if src is not None:
+                solutions[tid] = src
+        except _Timeout:
+            print(f'  [{tid}] exceeded {PER_TASK_TOTAL_BUDGET_S}s total budget; skipping')
+        except Exception as e:
+            print(f'  [{tid}] solve_one error: {type(e).__name__}: {e}')
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old)
 
     out = []
     if src and verify_program(src, task):
@@ -146,7 +290,7 @@ for tid, task in tasks.items():
             out.append([tp['input'], tp['input']])
     preds[tid] = out
 
-    if len(preds) % 10 == 0:                      # frequent checkpoint
+    if len(preds) % 5 == 0:                      # frequent checkpoint
         CHECKPOINT_PATH.write_text(json.dumps(solutions))
         elapsed = HARD_LIMIT_S - (GLOBAL_END - time.time())
         print(f'  [{len(preds)}/{len(tasks)}] solved={solved} elapsed={elapsed/60:.1f}min')

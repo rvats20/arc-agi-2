@@ -141,7 +141,14 @@ class Qwen3GridProposer:
             "torch_dtype": torch.bfloat16,
         }
         if load_in_4bit:
-            kwargs["quantization_config"] = BitsAndBytesConfig(load_in_4bit=True)
+            try:
+                kwargs["quantization_config"] = BitsAndBytesConfig(load_in_4bit=True)
+            except Exception as e:
+                # bitsandbytes may be unavailable (no internet, missing wheel).
+                # Fall back to bf16 — uses ~16GB instead of ~4GB but works
+                # on any T4/L4 without pip install.
+                print(f"[Qwen3] bitsandbytes unavailable ({e}); using bf16")
+                kwargs.pop("quantization_config", None)
         self._model = AutoModelForCausalLM.from_pretrained(
             self.model_path, **kwargs
         ).eval()

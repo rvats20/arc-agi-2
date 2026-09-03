@@ -155,43 +155,24 @@ print('eval tasks:', len(tasks))
 varc_solver = None
 llm_proposer = None
 if GPU_OK:
-    # Quick GPU compatibility check. Recent PyTorch (>= 2.4) drops support
-    # for CUDA capability < 7.0 (Tesla K80 etc.). If the installed torch
-    # can't run on the available GPU, skip VARC/LLM.
-    _compute_cap = None
+    # Try to load VARC + Qwen. If either fails (e.g. sm_60 P100 with
+    # recent torch, or model path missing), we catch the exception and
+    # fall back to DSL-only. The LB-relevant code is inside the try.
+    # VARC TTT: 60 gradient steps per task on a custom ViT
     try:
-        _compute_cap = torch.cuda.get_device_capability(0)
-    except Exception:
-        # If we can't even get the device cap, PyTorch probably can't run
-        # on this GPU (P100 sm_60 + recent torch). Treat as incompatible.
-        _compute_cap = None
-    # Also verify a tiny op actually runs on the GPU
-    _gpu_works = False
-    if _compute_cap and _compute_cap >= (7, 0):
+        from arc_agi2.varc_engine import VARCSolver
+        varc_solver = VARCSolver(device='cuda', ttt_steps=60)
+        print('VARC engine loaded')
+    except Exception as e:
+        print(f'VARC unavailable: {type(e).__name__}: {e}')
+    # Qwen3-4B LLM with text-only grid encoding (per NVARC reference)
+    if QWEN_MODEL_PATH:
         try:
-            _ = torch.zeros(2, device='cuda') + 1
-            _gpu_works = True
-        except Exception:
-            _gpu_works = False
-    if _gpu_works:
-        # VARC TTT: 60 gradient steps per task on a custom ViT
-        try:
-            from arc_agi2.varc_engine import VARCSolver
-            varc_solver = VARCSolver(device='cuda', ttt_steps=60)
-            print('VARC engine loaded')
+            from arc_agi2.models_nvarc import Qwen3GridProposer
+            llm_proposer = Qwen3GridProposer(QWEN_MODEL_PATH, device='cuda')
+            print(f'Qwen LLM loaded from {QWEN_MODEL_PATH}')
         except Exception as e:
-            print(f'VARC unavailable: {type(e).__name__}: {e}')
-        # Qwen3-4B LLM with text-only grid encoding (per NVARC reference)
-        if QWEN_MODEL_PATH:
-            try:
-                from arc_agi2.models_nvarc import Qwen3GridProposer
-                llm_proposer = Qwen3GridProposer(QWEN_MODEL_PATH, device='cuda')
-                print(f'Qwen LLM loaded from {QWEN_MODEL_PATH}')
-            except Exception as e:
-                print(f'Qwen LLM unavailable: {type(e).__name__}: {e}')
-    else:
-        print(f'GPU compute capability {_compute_cap} (sm_{_compute_cap[0] if _compute_cap else "?"}{_compute_cap[1] if _compute_cap else "?"}) < 7.0 or test op failed; skipping VARC/LLM (DSL only)')
-        print('(select an L4 or T4 accelerator in the kernel settings to enable VARC/LLM)')
+            print(f'Qwen LLM unavailable: {type(e).__name__}: {e}')
 
 # resume from checkpoint if present
 solutions = {}
@@ -312,16 +293,21 @@ print('wrote', SUBMISSION_PATH, '| tasks in submission:', len(sub))
 '''
 
 
-md("# ARC-AGI-2 Neuro-Symbolic Solver (submission-ready)\n"
-   "LLM-proposes (Qwen2.5-VL-7B, 4-bit) + symbolic verifier-checks.\n\n"
-   "**Setup:** attach the `rahulvats20/arc-agi-2-pkg` dataset to the notebook\n"
-   "(it contains the `arc_agi2` Python package).  The Qwen model is OPTIONAL —\n"
-   "if you don't have `rahulvats20/qwen25vl-7b-instruct-4bit` uploaded as a\n"
-   "Kaggle model dataset, the notebook still runs the pure-DSL branch.\n\n"
-   "**Score rule:** each test input gets `{attempt_1, attempt_2}`; the task scores\n"
-   "if EITHER matches ground truth exactly. We use attempt_2 as an identity fallback\n"
-   "so the grid is never empty.\n\n"
-   "**Accelerator:** select L4x4 (96GB) for the 7B model (~15GB in 4-bit).")
+md("# ARC-AGI-2 Neuro-Symbolic Solver (submission-ready)\\n"
+   "Neuro-symbolic solver: DSL (CPU) + VARC ViT TTT (GPU) + Qwen3-4B Turbo DFS (GPU).\\n\\n"
+   "**Setup checklist:**\\n"
+   "  1. Attach the `rahulvats20/arc-agi-2-pkg` dataset (contains the arc_agi2 package).\\n"
+   "  2. Attach the `sorokin/qwen3_4b_grids15_sft139/transformers/bfloat16/1` model.\\n"
+   "  3. **Settings → Accelerator → 'GPU T4 x4' or 'GPU L4 x4'** (NOT the default 'GPU' which is a P100).\\n\\n"
+   "If you can't change the accelerator, the notebook still runs the pure-DSL\\n"
+   "branch (2.5% on training) and produces a valid submission. The VARC and\\n"
+   "Qwen branches need sm_70+ which T4 (sm_75) and L4 (sm_89) provide.\\n\\n"
+   "**Score rule:** each test input gets `{attempt_1, attempt_2}`; the task scores\\n"
+   "if EITHER matches ground truth exactly. attempt_2 is the identity fallback.\\n\\n"
+   "**Total budget:** 12 hours (matches the NVARC reference).\\n\\n"
+   "**Note on 4-bit quantization:** internet is OFF on Kaggle during eval, so we\\n"
+   "can't pip install bitsandbytes. The notebook auto-falls-back to bf16 for\\n"
+   "Qwen3-4B (~16GB VRAM, fits in 24GB on L4).")
 
 code(CONFIG_CELL)
 

@@ -1,12 +1,12 @@
 {
   "n_total": 1000,
-  "n_solved": 14,
-  "n_failed": 986,
+  "n_solved": 31,
+  "n_failed": 969,
   "by_factor": {
-    "scale_3": 21,
-    "same": 675,
+    "same": 663,
     "free_6x3->9x3": 1,
     "free_3x7->3x3": 2,
+    "scale_3": 19,
     "free_30x30->2x3": 1,
     "free_18x19->7x9": 1,
     "free_15x13->6x6": 1,
@@ -24,7 +24,6 @@
     "free_5x7->5x3": 1,
     "free_27x15->23x11": 1,
     "free_13x16->5x3": 1,
-    "downscale_10": 2,
     "free_9x9->1x5": 1,
     "free_10x10->3x3": 5,
     "free_25x25->4x8": 1,
@@ -82,7 +81,6 @@
     "free_16x18->9x15": 1,
     "free_3x3->3x12": 1,
     "free_22x23->3x3": 1,
-    "scale_4": 3,
     "free_6x9->6x4": 1,
     "free_8x11->5x11": 1,
     "free_12x12->8x8": 1,
@@ -160,6 +158,7 @@
     "free_10x10->2x5": 1,
     "free_22x20->7x7": 1,
     "free_17x17->2x2": 1,
+    "scale_4": 2,
     "free_9x10->4x5": 1,
     "free_30x30->7x6": 1,
     "free_8x9->8x2": 1,
@@ -178,7 +177,6 @@
     "free_1x6->3x6": 1,
     "free_5x7->3x3": 1,
     "free_4x4->4x20": 1,
-    "free_6x11->4x3": 1,
     "free_17x18->3x3": 1,
     "free_1x5->5x5": 1,
     "free_23x23->5x5": 1,
@@ -199,6 +197,7 @@
     "free_6x7->3x6": 1,
     "free_4x13->10x18": 1,
     "free_11x9->1x1": 1,
+    "downscale_10": 1,
     "free_9x7->15x15": 1,
     "free_16x17->1x1": 1,
     "free_15x14->2x3": 1,
@@ -230,83 +229,21 @@
     "free_24x24->5x5": 1
   },
   "by_colormap": {
-    "shape_change": 311,
-    "consistent": 21,
-    "no": 654
+    "consistent": 16,
+    "no": 647,
+    "shape_change": 306
   },
   "by_out_eq_in": {
-    "diff": 986
+    "diff": 969
   },
   "by_density": {
-    "tiny": 207,
-    "small": 388,
+    "small": 378,
     "medium": 253,
+    "tiny": 200,
     "large": 135,
     "blank_in": 3
   },
   "failures": [
-    {
-      "tid": "00576224",
-      "n_train": 2,
-      "shape": {
-        "shape_same": false,
-        "shape_factor": "scale_3"
-      },
-      "color": {
-        "colormap_consistent": null,
-        "colormap_size": null
-      },
-      "symmetry": {
-        "out_eq_in": false,
-        "out_eq_rot_cw": null,
-        "out_eq_rot_ccw": null,
-        "out_eq_flip_h": null,
-        "out_eq_flip_v": null,
-        "out_eq_transpose": null
-      },
-      "content": {
-        "in_nz": 4,
-        "out_nz": 36,
-        "in_palette": 4,
-        "out_palette": 4,
-        "in_blank": false,
-        "out_blank": false
-      },
-      "all_same_shape": false,
-      "all_consistent_colormap": false,
-      "dsl_solved": false
-    },
-    {
-      "tid": "007bbfb7",
-      "n_train": 5,
-      "shape": {
-        "shape_same": false,
-        "shape_factor": "scale_3"
-      },
-      "color": {
-        "colormap_consistent": null,
-        "colormap_size": null
-      },
-      "symmetry": {
-        "out_eq_in": false,
-        "out_eq_rot_cw": null,
-        "out_eq_rot_ccw": null,
-        "out_eq_flip_h": null,
-        "out_eq_flip_v": null,
-        "out_eq_transpose": null
-      },
-      "content": {
-        "in_nz": 5,
-        "out_nz": 25,
-        "in_palette": 2,
-        "out_palette": 2,
-        "in_blank": false,
-        "out_blank": false
-      },
-      "all_same_shape": false,
-      "all_consistent_colormap": false,
-      "dsl_solved": false
-    },
     {
       "tid": "009d5c81",
       "n_train": 5,
@@ -331,37 +268,6 @@
         "out_nz": 31,
         "in_palette": 3,
         "out_palette": 2,
-        "in_blank": false,
-        "out_blank": false
-      },
-      "all_same_shape": true,
-      "all_consistent_colormap": false,
-      "dsl_solved": false
-    },
-    {
-      "tid": "00d62c1b",
-      "n_train": 5,
-      "shape": {
-        "shape_same": true,
-        "shape_factor": "same"
-      },
-      "color": {
-        "colormap_consistent": false,
-        "colormap_size": 2
-      },
-      "symmetry": {
-        "out_eq_in": false,
-        "out_eq_rot_cw": false,
-        "out_eq_rot_ccw": false,
-        "out_eq_flip_h": false,
-        "out_eq_flip_v": false,
-        "out_eq_transpose": false
-      },
-      "content": {
-        "in_nz": 29,
-        "out_nz": 35,
-        "in_palette": 2,
-        "out_palette": 3,
         "in_blank": false,
         "out_blank": false
       },
@@ -1204,37 +1110,6 @@
       },
       "all_same_shape": true,
       "all_consistent_colormap": false,
-      "dsl_solved": false
-    },
-    {
-      "tid": "0d3d703e",
-      "n_train": 4,
-      "shape": {
-        "shape_same": true,
-        "shape_factor": "same"
-      },
-      "color": {
-        "colormap_consistent": true,
-        "colormap_size": 3
-      },
-      "symmetry": {
-        "out_eq_in": false,
-        "out_eq_rot_cw": false,
-        "out_eq_rot_ccw": false,
-        "out_eq_flip_h": false,
-        "out_eq_flip_v": false,
-        "out_eq_transpose": false
-      },
-      "content": {
-        "in_nz": 9,
-        "out_nz": 9,
-        "in_palette": 3,
-        "out_palette": 3,
-        "in_blank": false,
-        "out_blank": false
-      },
-      "all_same_shape": true,
-      "all_consistent_colormap": true,
       "dsl_solved": false
     },
     {
@@ -3098,37 +2973,6 @@
       "dsl_solved": false
     },
     {
-      "tid": "1e0a9b12",
-      "n_train": 3,
-      "shape": {
-        "shape_same": true,
-        "shape_factor": "same"
-      },
-      "color": {
-        "colormap_consistent": false,
-        "colormap_size": 5
-      },
-      "symmetry": {
-        "out_eq_in": false,
-        "out_eq_rot_cw": false,
-        "out_eq_rot_ccw": false,
-        "out_eq_flip_h": false,
-        "out_eq_flip_v": false,
-        "out_eq_transpose": false
-      },
-      "content": {
-        "in_nz": 8,
-        "out_nz": 8,
-        "in_palette": 5,
-        "out_palette": 5,
-        "in_blank": false,
-        "out_blank": false
-      },
-      "all_same_shape": true,
-      "all_consistent_colormap": false,
-      "dsl_solved": false
-    },
-    {
       "tid": "1e32b0e9",
       "n_train": 3,
       "shape": {
@@ -3311,37 +3155,6 @@
         "out_blank": false
       },
       "all_same_shape": true,
-      "all_consistent_colormap": false,
-      "dsl_solved": false
-    },
-    {
-      "tid": "1f85a75f",
-      "n_train": 2,
-      "shape": {
-        "shape_same": false,
-        "shape_factor": "downscale_10"
-      },
-      "color": {
-        "colormap_consistent": null,
-        "colormap_size": null
-      },
-      "symmetry": {
-        "out_eq_in": false,
-        "out_eq_rot_cw": null,
-        "out_eq_rot_ccw": null,
-        "out_eq_flip_h": null,
-        "out_eq_flip_v": null,
-        "out_eq_transpose": null
-      },
-      "content": {
-        "in_nz": 49,
-        "out_nz": 6,
-        "in_palette": 3,
-        "out_palette": 2,
-        "in_blank": false,
-        "out_blank": false
-      },
-      "all_same_shape": false,
       "all_consistent_colormap": false,
       "dsl_solved": false
     },
@@ -4396,37 +4209,6 @@
         "out_blank": false
       },
       "all_same_shape": false,
-      "all_consistent_colormap": false,
-      "dsl_solved": false
-    },
-    {
-      "tid": "25ff71a9",
-      "n_train": 4,
-      "shape": {
-        "shape_same": true,
-        "shape_factor": "same"
-      },
-      "color": {
-        "colormap_consistent": false,
-        "colormap_size": 2
-      },
-      "symmetry": {
-        "out_eq_in": false,
-        "out_eq_rot_cw": false,
-        "out_eq_rot_ccw": false,
-        "out_eq_flip_h": false,
-        "out_eq_flip_v": false,
-        "out_eq_transpose": false
-      },
-      "content": {
-        "in_nz": 3,
-        "out_nz": 3,
-        "in_palette": 2,
-        "out_palette": 2,
-        "in_blank": false,
-        "out_blank": false
-      },
-      "all_same_shape": true,
       "all_consistent_colormap": false,
       "dsl_solved": false
     },
@@ -6539,37 +6321,6 @@
       "dsl_solved": false
     },
     {
-      "tid": "3906de3d",
-      "n_train": 3,
-      "shape": {
-        "shape_same": true,
-        "shape_factor": "same"
-      },
-      "color": {
-        "colormap_consistent": false,
-        "colormap_size": 2
-      },
-      "symmetry": {
-        "out_eq_in": false,
-        "out_eq_rot_cw": false,
-        "out_eq_rot_ccw": false,
-        "out_eq_flip_h": false,
-        "out_eq_flip_v": false,
-        "out_eq_transpose": false
-      },
-      "content": {
-        "in_nz": 30,
-        "out_nz": 30,
-        "in_palette": 3,
-        "out_palette": 3,
-        "in_blank": false,
-        "out_blank": false
-      },
-      "all_same_shape": true,
-      "all_consistent_colormap": false,
-      "dsl_solved": false
-    },
-    {
       "tid": "396d80d7",
       "n_train": 2,
       "shape": {
@@ -8608,37 +8359,6 @@
         "out_nz": 18,
         "in_palette": 9,
         "out_palette": 9,
-        "in_blank": false,
-        "out_blank": false
-      },
-      "all_same_shape": true,
-      "all_consistent_colormap": false,
-      "dsl_solved": false
-    },
-    {
-      "tid": "496994bd",
-      "n_train": 2,
-      "shape": {
-        "shape_same": true,
-        "shape_factor": "same"
-      },
-      "color": {
-        "colormap_consistent": false,
-        "colormap_size": 3
-      },
-      "symmetry": {
-        "out_eq_in": false,
-        "out_eq_rot_cw": false,
-        "out_eq_rot_ccw": false,
-        "out_eq_flip_h": false,
-        "out_eq_flip_v": false,
-        "out_eq_transpose": false
-      },
-      "content": {
-        "in_nz": 10,
-        "out_nz": 20,
-        "in_palette": 3,
-        "out_palette": 3,
         "in_blank": false,
         "out_blank": false
       },
@@ -10844,37 +10564,6 @@
         "out_blank": false
       },
       "all_same_shape": true,
-      "all_consistent_colormap": false,
-      "dsl_solved": false
-    },
-    {
-      "tid": "5b6cbef5",
-      "n_train": 5,
-      "shape": {
-        "shape_same": false,
-        "shape_factor": "scale_4"
-      },
-      "color": {
-        "colormap_consistent": null,
-        "colormap_size": null
-      },
-      "symmetry": {
-        "out_eq_in": false,
-        "out_eq_rot_cw": null,
-        "out_eq_rot_ccw": null,
-        "out_eq_flip_h": null,
-        "out_eq_flip_v": null,
-        "out_eq_transpose": null
-      },
-      "content": {
-        "in_nz": 9,
-        "out_nz": 81,
-        "in_palette": 2,
-        "out_palette": 2,
-        "in_blank": false,
-        "out_blank": false
-      },
-      "all_same_shape": false,
       "all_consistent_colormap": false,
       "dsl_solved": false
     },
@@ -19435,37 +19124,6 @@
       "dsl_solved": false
     },
     {
-      "tid": "a5313dff",
-      "n_train": 3,
-      "shape": {
-        "shape_same": true,
-        "shape_factor": "same"
-      },
-      "color": {
-        "colormap_consistent": false,
-        "colormap_size": 2
-      },
-      "symmetry": {
-        "out_eq_in": false,
-        "out_eq_rot_cw": false,
-        "out_eq_rot_ccw": false,
-        "out_eq_flip_h": false,
-        "out_eq_flip_v": false,
-        "out_eq_transpose": false
-      },
-      "content": {
-        "in_nz": 23,
-        "out_nz": 31,
-        "in_palette": 2,
-        "out_palette": 3,
-        "in_blank": false,
-        "out_blank": false
-      },
-      "all_same_shape": true,
-      "all_consistent_colormap": false,
-      "dsl_solved": false
-    },
-    {
       "tid": "a57f2f04",
       "n_train": 3,
       "shape": {
@@ -20300,37 +19958,6 @@
       },
       "all_same_shape": false,
       "all_consistent_colormap": false,
-      "dsl_solved": false
-    },
-    {
-      "tid": "aabf363d",
-      "n_train": 2,
-      "shape": {
-        "shape_same": true,
-        "shape_factor": "same"
-      },
-      "color": {
-        "colormap_consistent": true,
-        "colormap_size": 3
-      },
-      "symmetry": {
-        "out_eq_in": false,
-        "out_eq_rot_cw": false,
-        "out_eq_rot_ccw": false,
-        "out_eq_flip_h": false,
-        "out_eq_flip_v": false,
-        "out_eq_transpose": false
-      },
-      "content": {
-        "in_nz": 13,
-        "out_nz": 12,
-        "in_palette": 3,
-        "out_palette": 2,
-        "in_blank": false,
-        "out_blank": false
-      },
-      "all_same_shape": true,
-      "all_consistent_colormap": true,
       "dsl_solved": false
     },
     {
@@ -21230,37 +20857,6 @@
       },
       "all_same_shape": false,
       "all_consistent_colormap": false,
-      "dsl_solved": false
-    },
-    {
-      "tid": "b1948b0a",
-      "n_train": 3,
-      "shape": {
-        "shape_same": true,
-        "shape_factor": "same"
-      },
-      "color": {
-        "colormap_consistent": true,
-        "colormap_size": 2
-      },
-      "symmetry": {
-        "out_eq_in": false,
-        "out_eq_rot_cw": false,
-        "out_eq_rot_ccw": false,
-        "out_eq_flip_h": false,
-        "out_eq_flip_v": false,
-        "out_eq_transpose": false
-      },
-      "content": {
-        "in_nz": 24,
-        "out_nz": 24,
-        "in_palette": 2,
-        "out_palette": 2,
-        "in_blank": false,
-        "out_blank": false
-      },
-      "all_same_shape": true,
-      "all_consistent_colormap": true,
       "dsl_solved": false
     },
     {
@@ -22969,37 +22565,6 @@
       "dsl_solved": false
     },
     {
-      "tid": "be94b721",
-      "n_train": 4,
-      "shape": {
-        "shape_same": false,
-        "shape_factor": "free_6x11->4x3"
-      },
-      "color": {
-        "colormap_consistent": null,
-        "colormap_size": null
-      },
-      "symmetry": {
-        "out_eq_in": false,
-        "out_eq_rot_cw": null,
-        "out_eq_rot_ccw": null,
-        "out_eq_flip_h": null,
-        "out_eq_flip_v": null,
-        "out_eq_transpose": null
-      },
-      "content": {
-        "in_nz": 17,
-        "out_nz": 8,
-        "in_palette": 4,
-        "out_palette": 2,
-        "in_blank": false,
-        "out_blank": false
-      },
-      "all_same_shape": false,
-      "all_consistent_colormap": false,
-      "dsl_solved": false
-    },
-    {
       "tid": "beb8660c",
       "n_train": 3,
       "shape": {
@@ -23803,37 +23368,6 @@
       },
       "all_same_shape": false,
       "all_consistent_colormap": false,
-      "dsl_solved": false
-    },
-    {
-      "tid": "c8f0f002",
-      "n_train": 3,
-      "shape": {
-        "shape_same": true,
-        "shape_factor": "same"
-      },
-      "color": {
-        "colormap_consistent": true,
-        "colormap_size": 3
-      },
-      "symmetry": {
-        "out_eq_in": false,
-        "out_eq_rot_cw": false,
-        "out_eq_rot_ccw": false,
-        "out_eq_flip_h": false,
-        "out_eq_flip_v": false,
-        "out_eq_transpose": false
-      },
-      "content": {
-        "in_nz": 12,
-        "out_nz": 12,
-        "in_palette": 3,
-        "out_palette": 3,
-        "in_blank": false,
-        "out_blank": false
-      },
-      "all_same_shape": true,
-      "all_consistent_colormap": true,
       "dsl_solved": false
     },
     {
@@ -25477,37 +25011,6 @@
       },
       "all_same_shape": true,
       "all_consistent_colormap": false,
-      "dsl_solved": false
-    },
-    {
-      "tid": "d511f180",
-      "n_train": 3,
-      "shape": {
-        "shape_same": true,
-        "shape_factor": "same"
-      },
-      "color": {
-        "colormap_consistent": true,
-        "colormap_size": 7
-      },
-      "symmetry": {
-        "out_eq_in": false,
-        "out_eq_rot_cw": false,
-        "out_eq_rot_ccw": false,
-        "out_eq_flip_h": false,
-        "out_eq_flip_v": false,
-        "out_eq_transpose": false
-      },
-      "content": {
-        "in_nz": 9,
-        "out_nz": 9,
-        "in_palette": 7,
-        "out_palette": 7,
-        "in_blank": false,
-        "out_blank": false
-      },
-      "all_same_shape": true,
-      "all_consistent_colormap": true,
       "dsl_solved": false
     },
     {
@@ -29378,37 +28881,6 @@
         "out_nz": 96,
         "in_palette": 6,
         "out_palette": 5,
-        "in_blank": false,
-        "out_blank": false
-      },
-      "all_same_shape": true,
-      "all_consistent_colormap": false,
-      "dsl_solved": false
-    },
-    {
-      "tid": "f25ffba3",
-      "n_train": 2,
-      "shape": {
-        "shape_same": true,
-        "shape_factor": "same"
-      },
-      "color": {
-        "colormap_consistent": false,
-        "colormap_size": 1
-      },
-      "symmetry": {
-        "out_eq_in": false,
-        "out_eq_rot_cw": false,
-        "out_eq_rot_ccw": false,
-        "out_eq_flip_h": false,
-        "out_eq_flip_v": false,
-        "out_eq_transpose": false
-      },
-      "content": {
-        "in_nz": 11,
-        "out_nz": 22,
-        "in_palette": 4,
-        "out_palette": 4,
         "in_blank": false,
         "out_blank": false
       },

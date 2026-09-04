@@ -35,16 +35,24 @@ python dryrun_local.py      # full DSL->MockVL->verify->submit loop (CPU)
 python dryrun_fixture.py    # proves the accept-path fires (2/2)
 ```
 
-## Measured status (this session)
+## Measured status (2026-09-05 session)
 - Fixture pipeline: 2/2 solved, submission valid.
-- ARC-AGI-2 training set, pure DSL: 24/1000 = 2.40%
-  (v1.0 baseline 14, +5 colormap fix, +3 tile primitives, +2 fill_enclosed)
+- ARC-AGI-2 training set, pure DSL: 31/1000 = 3.10%
+  (was 25/1000 = 2.50%; +6 from colormap×D4, extract-object,
+  gravity/symmetry probes + `compress_to_side` / `mirror_complete` /
+  `extract_largest` primitives)
 - Real ARC-AGI-2 eval, toy DSL: 0/120 (honest floor; VLM is the scorer).
 - Full loop with MockVL: accept-path verified on fixture; 0/120 on real eval
   (real tasks aren't pure transforms — expected).
-- Notebook: 19 cells, all compile; Qwen load + verifier + checkpoint + format present.
-- LLM system prompt lists all 16 primitives; failure hint includes ASCII diff
-  for grids <= 20x20; repair loop picks the best (lowest diff) candidate.
+- Notebook: rebuilt via `build_notebook.py`; Qwen load + verifier +
+  checkpoint + format present.
+- LLM system prompts list all 19 primitives; repair loop picks the best
+  (lowest diff) candidate, now reranked by augmented-view consensus
+  (`augment.rank_candidates`) after per-task priming (`ttt.prime_proposer`,
+  GPU-only, silent no-op on CPU).
+- Synthetic generator: `python -m arc_agi2.synth --n 100` (20/20 smoke-tested).
+
+See [NEXT_STEPS.md](NEXT_STEPS.md) for what changed this session and what to do next.
 
 ## Run on Kaggle (real score)
 1. Create a Kaggle dataset with **Qwen2.5-VL-7B-Instruct** in 4-bit. Easiest:

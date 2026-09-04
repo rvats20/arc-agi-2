@@ -376,6 +376,60 @@ def find_objects(g: np.ndarray, bg: int = 0) -> list[dict]:
             objs.append({"mask": mask, "color": color, "n": n})
     return objs
 
+def compress_to_side(g: np.ndarray, side: str = "down", bg: int = 0) -> np.ndarray:
+    """Gravity: slide non-bg cells toward side, preserving order."""
+    h, w = g.shape
+    out = np.full((h, w), bg, dtype=g.dtype)
+    if side in ("down", "up"):
+        for x in range(w):
+            col = [int(v) for v in g[:, x] if v != bg]
+            if side == "down":
+                out[h - len(col):, x] = col
+            else:
+                out[:len(col), x] = col
+    else:
+        for y in range(h):
+            row = [int(v) for v in g[y, :] if v != bg]
+            if side == "right":
+                out[y, w - len(row):] = row
+            else:
+                out[y, :len(row)] = row
+    return out
+
+
+def mirror_complete(g: np.ndarray, axis: str = "h", half: str = "left") -> np.ndarray:
+    """Mirror one half onto the other. axis h = left/right, v = top/bottom."""
+    out = g.copy()
+    h, w = g.shape
+    if axis == "h":
+        if half == "left":
+            out = np.concatenate([g[:, : (w + 1) // 2], np.fliplr(g[:, : w // 2])], axis=1)[:, :w]
+        else:
+            out = np.concatenate([np.fliplr(g[:, w // 2:]), g[:, w // 2:]], axis=1)[:, -w:]
+            # fix width for odd w
+            left = np.fliplr(out[:, w // 2:] if w % 2 == 0 else out[:, w // 2 + 1:])
+            out = g.copy()
+            out[:, : w // 2] = left[:, : w // 2]
+    else:
+        if half == "top":
+            top = g[: (h + 1) // 2, :]
+            out = np.concatenate([top, np.flipud(top[: h // 2, :])], axis=0)[:h, :]
+        else:
+            bot = g[h // 2:, :]
+            out = np.concatenate([np.flipud(bot), bot], axis=0)[-h:, :]
+    return out
+
+
+def extract_largest(g: np.ndarray, bg: int = 0) -> np.ndarray:
+    """Return bbox crop of the largest connected non-bg object."""
+    objs = find_objects(g, bg=bg)
+    if not objs:
+        return g
+    best = max(objs, key=lambda o: o["n"])
+    ys, xs = np.where(best["mask"])
+    return g[ys.min(): ys.max() + 1, xs.min(): xs.max() + 1]
+
+
 PRIMITIVES = {
     "rotate_cw": rotate_cw,
     "rotate_ccw": rotate_ccw,
@@ -399,6 +453,9 @@ PRIMITIVES = {
     "fill_enclosed": fill_enclosed,
     "flood_fill_4": flood_fill_4,
     "find_objects": find_objects,
+    "compress_to_side": compress_to_side,
+    "mirror_complete": mirror_complete,
+    "extract_largest": extract_largest,
 }
 
 # Register primitives into the safe namespace so solve() can call them directly.
@@ -666,6 +723,80 @@ def _color_map_source(task) -> str | None:
             f"    return _f[g]\n")
 
 
+def _colormap_d4_source(task) -> str | None:
+    """Colormap composed with D4 orientations. Catches recolor+rotate tasks."""
+    from .verifier import verify_program
+    D4 = ["g", "rotate_cw(g)", "rotate_cw(rotate_cw(g))",
+          "rotate_cw(rotate_cw(rotate_cw(g)))", "flip_h(g)", "flip_v(g)",
+          "transpose(g)", "flip_h(transpose(g))"]
+    for expr in D4:
+        mapping: dict[int, int] = {}
+        ok = True
+        for pair in task.train:
+            inp = np.array(pair["input"], dtype=int)
+            out = np.array(pair["output"], dtype=int)
+            # apply orientation mentally: shapes must allow it
+            # quick check via running the expr through SAFE_GLOBALS
+            try:
+                oriented = eval(expr, dict(SAFE_GLOBALS, g=inp))  # noqa: S307
+            except Exception:
+                ok = False
+                break
+            if np.shape(oriented) != np.shape(out):
+                ok = False
+                break
+            for a, b in zip(np.asarray(oriented).flat, np.asarray(out).flat):
+                a, b = int(a), int(b)
+                if a in mapping and mapping[a] != b:
+                    ok = False
+                    break
+                mapping[a] = b
+            if not ok:
+                break
+        if not ok or not mapping or len(mapping) < 2:
+            continue
+        if all(k == v for k, v in mapping.items()):
+            continue
+        f = [0] * 10
+        for k, v in mapping.items():
+            f[int(k)] = int(v)
+        src = (f"def solve(g):\n"
+               f"    _f = np.array({f}, dtype=np.int64)\n"
+               f"    return _f[{expr}]\n")
+        if verify_program(src, task):
+            return src
+    return None
+
+
+def _extract_object_source(task) -> str | None:
+    """Shape-change family: largest-object extract, bbox crop, keep-color."""
+    from .verifier import verify_program
+    cands = ["def solve(g):\n    return extract_largest(g)\n",
+             "def solve(g):\n    return crop_nonzero(g)\n",
+             "def solve(g):\n    return bounding_box_crop(g)\n"]
+    for c in range(1, 10):
+        cands.append(f"def solve(g):\n    return crop_nonzero(keep_color(g, {c}))\n")
+        cands.append(f"def solve(g):\n    return extract_largest(keep_color(g, {c}))\n")
+    for src in cands:
+        if verify_program(src, task):
+            return src
+    return None
+
+
+def _gravity_symmetry_source(task) -> str | None:
+    """Same-shape structural family: gravity compress + mirror complete."""
+    from .verifier import verify_program
+    cands = []
+    for side in ("down", "up", "left", "right"):
+        cands.append(f"def solve(g):\n    return compress_to_side(g, '{side}')\n")
+    for axis, half in (("h", "left"), ("h", "right"), ("v", "top"), ("v", "bottom")):
+        cands.append(f"def solve(g):\n    return mirror_complete(g, '{axis}', '{half}')\n")
+    for src in cands:
+        if verify_program(src, task):
+            return src
+    return None
+
+
 def synthesize(task, max_compose: bool = True, verbose: bool = False,
                use_cache: bool = True) -> str | None:
     """Bounded program synthesizer over the primitive library.
@@ -742,6 +873,19 @@ def synthesize(task, max_compose: bool = True, verbose: bool = False,
         if use_cache:
             _put(task, seo)
         return seo
+    for _name, _fn in (("colormap_d4", _colormap_d4_source),
+                       ("extract_object", _extract_object_source),
+                       ("gravity_symmetry", _gravity_symmetry_source)):
+        try:
+            _r = _fn(task)
+        except Exception:
+            _r = None
+        if _r:
+            if verbose:
+                print(f"  verified ({_name})")
+            if use_cache:
+                _put(task, _r)
+            return _r
     # 4. 2-primitive compositions (more expensive)
     if max_compose:
         for src in _composition_sources():

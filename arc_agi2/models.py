@@ -52,6 +52,10 @@ SYSTEM_PROMPT = textwrap.dedent(
         fill_enclosed(g, frame, fill)   - fill zero-regions enclosed by
                                           frame-color (4-connected)
         flood_fill_4(g, (y, x), color)   - 4-connected paint from seed
+      STRUCTURE (new):
+        compress_to_side(g, side)       - gravity slide to down/up/left/right
+        mirror_complete(g, axis, half)  - mirror left/right or top/bottom half
+        extract_largest(g)              - bbox crop of largest object
 
     You may also write plain numpy / Python code. `solve(g)` must return a
     numpy int array (the output grid). Output ONLY python code starting
@@ -213,10 +217,26 @@ def repair_loop(proposer, task, n_rounds: int = 3, n_candidates: int = 4,
     if skip_if_hopeless and looks_llm_hopeless(task, None):
         return None
 
+    # Per-task priming (ARChitects/NVARC): micro-finetune on own pairs on GPU.
+    try:
+        from .ttt import prime_proposer
+        prime_proposer(proposer, task)
+    except Exception:
+        pass  # CPU or proposer without _model: skip silently
+
     hint: Optional[str] = None
     best_hint: Optional[str] = None
     for _ in range(n_rounds):
         cands = proposer.propose(task, n_candidates=n_candidates, hint=hint)
+        # Augmented-view rerank: best consensus candidate verifies first.
+        try:
+            from .augment import rank_candidates
+            train_dicts = [{"input": p["input"], "output": p["output"]}
+                           for p in task.train]
+            cands = [src for _, _, src in
+                     rank_candidates([c for c in cands if c], train_dicts)]
+        except Exception:
+            pass
         for src in cands:
             if src and verify_program(src, task):
                 return src

@@ -36,7 +36,8 @@ grids as digit text and a test input grid. WRITE a Python function
   np, rotate_cw, rotate_ccw, flip_h, flip_v, transpose, invert_colors,
   crop_nonzero, grow_nonzero, kron_tile(g, k), masked_kron_tile(g, k),
   brickwall_tile(g, k), shift_to_origin, color_replace, keep_color,
-  find_objects, fill_enclosed, flood_fill_4, scale_up, scale_down.
+  find_objects, fill_enclosed, flood_fill_4, scale_up, scale_down,
+  compress_to_side(g, side), mirror_complete(g, axis, half), extract_largest(g).
 You may also write plain numpy / Python code. `solve(g)` must return a
 numpy int array. Output ONLY python code starting with `def solve(g):`
 and nothing else. No markdown, no commentary.

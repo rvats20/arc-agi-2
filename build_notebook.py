@@ -101,6 +101,33 @@ else:
     print("arc_agi2 package NOT FOUND under /kaggle/input/; tried to detect automatically")
 
 KAGGLE_INPUT = '/kaggle/input/competitions/arc-prize-2026-arc-agi-2'
+# Auto-discover the real competition mount: find any *challenges.json under /kaggle/input
+# and use its parent dir. If not found, keep the default above.
+if not Path(KAGGLE_INPUT).exists():
+    _cands = list(Path("/kaggle/input").rglob("*challenges.json"))
+    if _cands:
+        KAGGLE_INPUT = str(_cands[0].parent)
+        print(f"Auto-fixed KAGGLE_INPUT -> {KAGGLE_INPUT}")
+    else:
+        # competition folder is usually /kaggle/input/<slug> with challenges inside rglob missed
+        for _p in Path("/kaggle/input").iterdir():
+            if _p.is_dir():
+                for _q in _p.rglob("*challenges.json"):
+                    KAGGLE_INPUT = str(_q.parent)
+                    print(f"Auto-fixed KAGGLE_INPUT -> {KAGGLE_INPUT}")
+                    break
+                if Path(KAGGLE_INPUT).exists() and KAGGLE_INPUT != '/kaggle/input/competitions/arc-prize-2026-arc-agi-2':
+                    break
+# Fallback: also probe after PKG_PARENT discovery, the dataset mount may be named arbitrarily
+if PKG_PARENT is None:
+    # Last resort: any rglob for arc_agi2/__init__.py anywhere under /kaggle/input
+    for _q in Path("/kaggle/input").rglob("arc_agi2/__init__.py"):
+        PKG_PARENT = str(_q.parent.parent)
+        sys.path.insert(0, PKG_PARENT)
+        PKG_FOUND = True
+        print(f"Late-found arc_agi2 at {PKG_PARENT}")
+        break
+
 # Qwen3-4B grid-fine-tuned model (VARC reference notebook uses this for the
 # 33.89 LB baseline). Publicly available, fine-tunable. Path varies by
 # how the user attached the model to the notebook.

@@ -5,7 +5,10 @@ filled cell so the vision model can read them. 0 is treated as background.
 """
 from __future__ import annotations
 
-from PIL import Image, ImageDraw
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from PIL import Image
 
 # Distinct, high-contrast colors for 0..9 (RGB). Index 0 = black background.
 ARC_COLORS = [
@@ -37,6 +40,8 @@ def grid_to_image(grid: list[list[int]], cell: int = 32, border: int = 2) -> Ima
     cell  - pixel size of each grid cell
     border- black gap between cells so the model can see grid lines
     """
+    from PIL import Image, ImageDraw
+
     h = len(grid)
     w = len(grid[0]) if h else 0
     if w == 0:

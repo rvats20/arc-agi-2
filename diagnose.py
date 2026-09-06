@@ -1,8 +1,12 @@
-import os, sys
-sys.path.insert(0, "/mnt/c/Users/Rahul/arc-agi-2")
+import os
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
 from arc_agi2 import load_all
 
-DATA = "/mnt/c/Users/Rahul/arc-agi-2/data"
+DATA = Path(os.environ.get("ARC_DATA_DIR", HERE / "data"))
 tasks = load_all(DATA, split="evaluation")
 
 ident = 0

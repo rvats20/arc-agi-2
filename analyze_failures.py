@@ -8,6 +8,7 @@ Output: analysis/failure_modes.json + a printed summary.
 """
 from __future__ import annotations
 import json
+import os
 import sys
 from collections import Counter
 from pathlib import Path
@@ -134,7 +135,13 @@ def diagnose_task(task) -> dict:
 
 
 def main() -> None:
-    tasks = load_all(HERE / "data", split="training")
+    data_dir = Path(os.environ.get("ARC_DATA_DIR", HERE / "data"))
+    if not data_dir.is_dir():
+        print(f"Data dir not found: {data_dir} "
+              f"(set ARC_DATA_DIR or place ARC data under {HERE / 'data'})",
+              file=sys.stderr)
+        raise SystemExit(1)
+    tasks = load_all(data_dir, split="training")
     print(f"Analyzing {len(tasks)} training tasks...")
 
     n_solved = 0

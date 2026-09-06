@@ -1,0 +1,3 @@
+numpy
+pillow
+# torch/transformers are provided by the Kaggle environment — do not add here.

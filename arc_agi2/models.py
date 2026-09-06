@@ -56,6 +56,11 @@ SYSTEM_PROMPT = textwrap.dedent(
         compress_to_side(g, side)       - gravity slide to down/up/left/right
         mirror_complete(g, axis, half)  - mirror left/right or top/bottom half
         extract_largest(g)              - bbox crop of largest object
+      FILTER/HOLES:
+        filter_objects_by_size(g, keep) - keep='largest'/'smallest' single object
+        remove_small_objects(g, min_size) - drop components smaller than min_size
+        keep_n_largest(g, n)            - keep n biggest objects, zero rest
+        fill_holes(g, fill_value)       - fill enclosed bg-regions (auto color if None)
 
     You may also write plain numpy / Python code. `solve(g)` must return a
     numpy int array (the output grid). Output ONLY python code starting

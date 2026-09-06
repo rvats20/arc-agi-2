@@ -29,6 +29,9 @@ PIPELINES = [
     "mirror_complete:v:top", "mirror_complete:v:bottom",
     "extract_largest", "fill_enclosed:1:2",
     "kron_tile:2", "scale_up:2",
+    # new filter/holes primitives
+    "filter_objects_by_size:largest", "filter_objects_by_size:smallest",
+    "remove_small_objects:3", "keep_n_largest:2", "fill_holes",
 ]
 
 COLORMAPS = [

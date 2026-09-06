@@ -429,6 +429,119 @@ def extract_largest(g: np.ndarray, bg: int = 0) -> np.ndarray:
     ys, xs = np.where(best["mask"])
     return g[ys.min(): ys.max() + 1, xs.min(): xs.max() + 1]
 
+def filter_objects_by_size(g: np.ndarray, keep: str = "largest", bg: int = 0) -> np.ndarray:
+    """Keep only the largest (or smallest) connected non-bg object(s).
+
+    keep = 'largest' keeps the single biggest object, zeroing all others.
+    keep = 'smallest' keeps the single smallest object.
+    Output shape is preserved (other objects are erased to bg).
+    """
+    objs = find_objects(g, bg=bg)
+    if not objs:
+        return g
+    if keep == "largest":
+        best = max(objs, key=lambda o: o["n"])
+    else:
+        best = min(objs, key=lambda o: o["n"])
+    out = np.full_like(g, bg)
+    out[best["mask"]] = g[best["mask"]]
+    return out
+
+def remove_small_objects(g: np.ndarray, min_size: int = 3, bg: int = 0) -> np.ndarray:
+    """Remove connected components smaller than min_size (recolor to bg)."""
+    out = g.copy()
+    for obj in find_objects(g, bg=bg):
+        if obj["n"] < min_size:
+            out[obj["mask"]] = bg
+    return out
+
+def keep_n_largest(g: np.ndarray, n: int = 2, bg: int = 0) -> np.ndarray:
+    """Keep only the n largest objects, zero the rest. Preserves shape."""
+    objs = find_objects(g, bg=bg)
+    if not objs or n >= len(objs):
+        return g
+    objs_sorted = sorted(objs, key=lambda o: -o["n"])
+    keep_masks = [o["mask"] for o in objs_sorted[:n]]
+    combined = np.zeros_like(g, dtype=bool)
+    for m in keep_masks:
+        combined |= m
+    out = np.full_like(g, bg)
+    out[combined] = g[combined]
+    return out
+
+def fill_holes(g: np.ndarray, fill_value: int | None = None, bg: int = 0) -> np.ndarray:
+    """Fill every bg-region that is fully enclosed (not 4-connected to the
+    border). If fill_value is None, fill with the surrounding frame color
+    (the most common non-bg color touching the hole). Otherwise fill with
+    fill_value.  A generalization of fill_enclosed that needs no color args.
+    """
+    h, w = g.shape
+    out = g.copy()
+    # Find border-reachable bg cells (outside)
+    visited = np.zeros((h, w), dtype=bool)
+    from collections import deque
+    q: deque[tuple[int,int]] = deque()
+    for x in range(w):
+        if g[0, x] == bg:
+            q.append((0, x)); visited[0, x] = True
+        if g[h-1, x] == bg:
+            q.append((h-1, x)); visited[h-1, x] = True
+    for y in range(h):
+        if g[y, 0] == bg:
+            if not visited[y, 0]: q.append((y, 0)); visited[y, 0] = True
+        if g[y, w-1] == bg:
+            if not visited[y, w-1]: q.append((y, w-1)); visited[y, w-1] = True
+    while q:
+        y, x = q.popleft()
+        for dy, dx in ((1,0),(-1,0),(0,1),(0,-1)):
+            ny, nx = y+dy, x+dx
+            if 0 <= ny < h and 0 <= nx < w and not visited[ny, nx] and g[ny, nx] == bg:
+                visited[ny, nx] = True
+                q.append((ny, nx))
+    # Every remaining bg cell is a hole -> fill it
+    holes = (g == bg) & (~visited)
+    if not holes.any():
+        return out
+    if fill_value is not None:
+        out[holes] = fill_value
+    else:
+        # Fill each hole region with its border color (majority neighbor)
+        hole_visited = np.zeros((h, w), dtype=bool)
+        for y in range(h):
+            for x in range(w):
+                if holes[y, x] and not hole_visited[y, x]:
+                    # BFS this hole region
+                    region: list[tuple[int,int]] = []
+                    qq: deque[tuple[int,int]] = deque([(y, x)])
+                    hole_visited[y, x] = True
+                    while qq:
+                        cy, cx = qq.popleft()
+                        region.append((cy, cx))
+                        for dy, dx in ((1,0),(-1,0),(0,1),(0,-1)):
+                            ny, nx = cy+dy, cx+dx
+                            if 0 <= ny < h and 0 <= nx < w and holes[ny, nx] and not hole_visited[ny, nx]:
+                                hole_visited[ny, nx] = True
+                                qq.append((ny, nx))
+                    # majority non-bg color adjacent to region
+                    from collections import Counter
+                    neigh_colors: Counter[int] = Counter()
+                    for cy, cx in region:
+                        for dy, dx in ((1,0),(-1,0),(0,1),(0,-1)):
+                            ny, nx = cy+dy, cx+dx
+                            if 0 <= ny < h and 0 <= nx < w and g[ny, nx] != bg and not holes[ny, nx]:
+                                neigh_colors[int(g[ny, nx])] += 1
+                    fill_c = neigh_colors.most_common(1)[0][0] if neigh_colors else 1
+                    for cy, cx in region:
+                        out[cy, cx] = fill_c
+    return out
+
+def upscale_with_mode(g: np.ndarray, k: int = 2, mode: str = "nearest") -> np.ndarray:
+    """Scale up by integer k using explicit mode (nearest-repeat). Alias around
+    scale_up but exposed so the LLM can call it by this name. mode kept for
+    API compatibility; only 'nearest' is supported.
+    """
+    return scale_up(g, k=k)
+
 
 PRIMITIVES = {
     "rotate_cw": rotate_cw,
@@ -456,6 +569,11 @@ PRIMITIVES = {
     "compress_to_side": compress_to_side,
     "mirror_complete": mirror_complete,
     "extract_largest": extract_largest,
+    "filter_objects_by_size": filter_objects_by_size,
+    "remove_small_objects": remove_small_objects,
+    "keep_n_largest": keep_n_largest,
+    "fill_holes": fill_holes,
+    "upscale_with_mode": upscale_with_mode,
 }
 
 # Register primitives into the safe namespace so solve() can call them directly.
@@ -485,7 +603,8 @@ def _composition_sources() -> list[str]:
     """Cheap 2-primitive compositions (outer(inner(g)))."""
     outs = ["rotate_cw", "rotate_ccw", "flip_h", "flip_v", "transpose",
             "crop_nonzero", "invert_colors", "scale_up", "scale_down",
-            "kron_tile", "masked_kron_tile", "brickwall_tile", "shift_to_origin"]
+            "kron_tile", "masked_kron_tile", "brickwall_tile", "shift_to_origin",
+            "fill_holes", "filter_objects_by_size", "remove_small_objects"]
     srcs = []
     for o in outs:
         for i in ["rotate_cw", "rotate_ccw", "flip_h", "flip_v", "transpose",
@@ -796,6 +915,25 @@ def _gravity_symmetry_source(task) -> str | None:
             return src
     return None
 
+def _filter_holes_source(task) -> str | None:
+    """Same-shape: object filtering + hole filling family."""
+    from .verifier import verify_program
+    cands = [
+        "def solve(g):\n    return fill_holes(g)\n",
+        "def solve(g):\n    return filter_objects_by_size(g, 'largest')\n",
+        "def solve(g):\n    return filter_objects_by_size(g, 'smallest')\n",
+        "def solve(g):\n    return keep_n_largest(g, 2)\n",
+        "def solve(g):\n    return keep_n_largest(g, 3)\n",
+    ]
+    for ms in (2, 3, 4, 5):
+        cands.append(f"def solve(g):\n    return remove_small_objects(g, {ms})\n")
+    # Combined: filter then fill (common pattern)
+    cands.append("def solve(g):\n    return fill_holes(filter_objects_by_size(g, 'largest'))\n")
+    for src in cands:
+        if verify_program(src, task):
+            return src
+    return None
+
 
 def synthesize(task, max_compose: bool = True, verbose: bool = False,
                use_cache: bool = True) -> str | None:
@@ -875,7 +1013,8 @@ def synthesize(task, max_compose: bool = True, verbose: bool = False,
         return seo
     for _name, _fn in (("colormap_d4", _colormap_d4_source),
                        ("extract_object", _extract_object_source),
-                       ("gravity_symmetry", _gravity_symmetry_source)):
+                       ("gravity_symmetry", _gravity_symmetry_source),
+                       ("filter_holes", _filter_holes_source)):
         try:
             _r = _fn(task)
         except Exception:
